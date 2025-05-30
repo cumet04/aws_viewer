@@ -9,6 +9,7 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch-logs": "^3.817.0",
     "@aws-sdk/client-ecs": "^3.817.0",
     "@react-router/node": "^7.5.3",
     "@react-router/serve": "^7.5.3",
