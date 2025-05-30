@@ -56,7 +56,6 @@ export async function loader(args: LoaderFunctionArgs) {
     );
     if (descRes.tasks) taskDetails.push(...descRes.tasks);
   }
-  console.log(taskDetails.map((t) => t.containers));
   // containerOverridesが存在する場合のみ、コマンドはoverridesから取得
   const data = taskDetails.map((task) => {
     // containerOverridesはtask.overrides?.containerOverrides
