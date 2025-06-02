@@ -16,46 +16,100 @@
 // - ログエントリの"message"フィールドをJSON pretty printしたもの
 
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
-import { CloudWatchLogsClient, FilterLogEventsCommand, type FilterLogEventsCommandOutput } from "@aws-sdk/client-cloudwatch-logs";
+import { CloudWatchLogsClient, type FilteredLogEvent, paginateFilterLogEvents } from "@aws-sdk/client-cloudwatch-logs";
 
 // ロググループ名は環境変数から取得
 const LOG_GROUP_NAME = process.env.LOG_GROUP_NAME ?? "";
 
+// ECSタスク状態変更イベントの型定義
+interface EcsTaskStateChangeEvent {
+  version?: string;
+  id?: string;
+  'detail-type'?: string;
+  source?: string;
+  account?: string;
+  time?: string;
+  region?: string;
+  detail?: {
+    clusterArn?: string;
+    containerInstanceArn?: string;
+    containers?: Array<{
+      containerArn?: string;
+      lastStatus?: string;
+      name?: string;
+      taskArn?: string;
+    }>;
+    createdAt?: string;
+    desiredStatus?: string;
+    group?: string;
+    lastStatus?: string;
+    startedAt?: string;
+    stoppedAt?: string;
+    startedBy?: string;
+    taskArn?: string;
+    taskDefinitionArn?: string;
+    overrides?: {
+      containerOverrides?: Array<{
+        name?: string;
+        command?: string[];
+      }>;
+    };
+  };
+}
+
+// 表示用データの型定義
+interface DisplayEvent {
+  eventId?: string;
+  family?: string;
+  appCommand?: string;
+  startedAt?: string;
+  stoppedAt?: string;
+  durationSec?: number;
+  prettyMessage: string;
+}
+
 // ログエントリをAPIで取得する関数
-async function fetchRawEvents(logGroupName: string, limit: number = 200) {
+async function fetchRawEvents(logGroupName: string, limit: number = 200): Promise<FilteredLogEvent[]> {
   const client = new CloudWatchLogsClient({});
-  let nextToken: string | undefined = undefined;
-  const rawEvents: any[] = [];
   
   // 全ログだと時間がかかりすぎるので、直近24hに限定
   const startTime = new Date().getTime() - (24 * 60 * 60 * 1000);
   
-  do {
-    const res: FilterLogEventsCommandOutput = await client.send(
-      new FilterLogEventsCommand({
-        logGroupName,
-        startTime,
-        nextToken,
-        limit: 50,
-      })
-    );
-    if (res.events) rawEvents.push(...res.events);
-    nextToken = res.nextToken;
-    if (rawEvents.length >= limit) break;
-  } while (nextToken);
-  return rawEvents;
+  const paginator = paginateFilterLogEvents(
+    { client },
+    {
+      logGroupName,
+      startTime,
+      limit: 50,
+    }
+  );
+
+  const allEvents: FilteredLogEvent[] = [];
+  for await (const page of paginator) {
+    if (page.events) {
+      const newEvents = [...allEvents, ...page.events];
+      if (newEvents.length >= limit) {
+        return newEvents.slice(0, limit);
+      }
+      allEvents.splice(0, allEvents.length, ...newEvents);
+    }
+  }
+  
+  return allEvents;
 }
 
 // 表示用データへ加工する関数
-function mapEventToDisplay(event: any) {
-  let msgObj: any = null;
+function mapEventToDisplay(event: FilteredLogEvent): DisplayEvent {
+  let msgObj: EcsTaskStateChangeEvent | null = null;
   let pretty = "";
+  
   try {
-    msgObj = JSON.parse(event.message ?? "");
+    msgObj = JSON.parse(event.message ?? "") as EcsTaskStateChangeEvent;
     pretty = JSON.stringify(msgObj, null, 2);
   } catch {
     pretty = event.message ?? "";
   }
+
   // family名
   let family: string | undefined = undefined;
   // appコンテナのコマンド
@@ -64,34 +118,58 @@ function mapEventToDisplay(event: any) {
   let startedAt: string | undefined = undefined;
   let stoppedAt: string | undefined = undefined;
   let durationSec: number | undefined = undefined;
-  if (msgObj) {
-    family = msgObj.detail?.taskDefinitionArn?.split(":task-definition/")[1]?.split(":")[0];
-    const overrides = msgObj.detail?.overrides?.containerOverrides;
-    if (Array.isArray(overrides)) {
-      const app = overrides.find((c: any) => c.name === "app");
-      if (app && Array.isArray(app.command)) {
-        appCommand = app.command.join(" ");
+
+  if (msgObj?.detail) {
+    const detail = msgObj.detail;
+    
+    // taskDefinitionArnからfamily名を抽出
+    if (detail.taskDefinitionArn) {
+      const arnParts = detail.taskDefinitionArn.split(":task-definition/");
+      if (arnParts.length > 1) {
+        family = arnParts[1].split(":")[0];
       }
     }
-    startedAt = msgObj.detail?.startedAt;
-    stoppedAt = msgObj.detail?.stoppedAt;
+
+    // containerOverridesからappコンテナのコマンドを取得
+    const overrides = detail.overrides?.containerOverrides;
+    if (overrides) {
+      const appContainer = overrides.find((container) => container.name === "app");
+      if (appContainer?.command) {
+        appCommand = appContainer.command.join(" ");
+      }
+    }
+
+    // 開始・終了時刻と実行時間を計算
+    startedAt = detail.startedAt;
+    stoppedAt = detail.stoppedAt;
+    
     if (startedAt && stoppedAt) {
-      const start = new Date(startedAt).getTime();
-      const stop = new Date(stoppedAt).getTime();
-      if (!isNaN(start) && !isNaN(stop)) {
-        durationSec = Math.round((stop - start) / 1000);
+      const startTime = new Date(startedAt).getTime();
+      const stopTime = new Date(stoppedAt).getTime();
+      if (!isNaN(startTime) && !isNaN(stopTime)) {
+        durationSec = Math.round((stopTime - startTime) / 1000);
       }
     }
   }
-  return { eventId: event.eventId, family, appCommand, startedAt, stoppedAt, durationSec, prettyMessage: pretty };
+
+  return { 
+    eventId: event.eventId, 
+    family, 
+    appCommand, 
+    startedAt, 
+    stoppedAt, 
+    durationSec, 
+    prettyMessage: pretty 
+  };
 }
 
 export async function loader(args: LoaderFunctionArgs) {
   const rawEvents = await fetchRawEvents(LOG_GROUP_NAME, 200);
+  
   // startedByが "ecs-svc/" で始まるものを除外
-  const filtered = rawEvents.filter(event => {
+  const filteredEvents = rawEvents.filter((event) => {
     try {
-      const msgObj = JSON.parse(event.message ?? "");
+      const msgObj = JSON.parse(event.message ?? "") as EcsTaskStateChangeEvent;
       const startedBy = msgObj?.detail?.startedBy;
       return !(typeof startedBy === "string" && startedBy.startsWith("ecs-svc/"));
     } catch {
@@ -99,20 +177,13 @@ export async function loader(args: LoaderFunctionArgs) {
       return true;
     }
   });
-  const events = filtered.map(mapEventToDisplay);
+  
+  const events = filteredEvents.map(mapEventToDisplay);
   return { events };
 }
 
 type LoaderData = {
-  events: Array<{
-    eventId?: string;
-    family?: string;
-    appCommand?: string;
-    startedAt?: string;
-    stoppedAt?: string;
-    durationSec?: number;
-    prettyMessage: string;
-  }>;
+  events: DisplayEvent[];
 };
 
 export default function Ecslog() {

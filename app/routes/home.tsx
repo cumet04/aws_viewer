@@ -19,7 +19,15 @@
 // - appコンテナのログストリームのname
 
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
-import { ECSClient, ListTasksCommand, DescribeTasksCommand, DescribeTaskDefinitionCommand, type ListTasksCommandOutput } from "@aws-sdk/client-ecs";
+import { 
+  ECSClient, 
+  DescribeTasksCommand, 
+  DescribeTaskDefinitionCommand, 
+  paginateListTasks,
+  type Task,
+  type TaskDefinition,
+  type ContainerOverride
+} from "@aws-sdk/client-ecs";
 import { type Container } from "@aws-sdk/client-ecs";
 
 // クラスタ名は環境変数から取得
@@ -29,77 +37,101 @@ const STATUSES = ["RUNNING", "PENDING", "STOPPED"] as const;
 // Loader (SSR)
 export async function loader(args: LoaderFunctionArgs) {
   const client = new ECSClient({});
-  let allTaskArns: string[] = [];
-  // 各ステータスごとにlistTasks
-  for (const status of STATUSES) {
-    let nextToken: string | undefined = undefined;
-    do {
-      const listRes: ListTasksCommandOutput = await client.send(
-        new ListTasksCommand({
-          cluster: CLUSTER_NAME,
-          desiredStatus: status,
-          nextToken,
-        })
-      );
-      if (listRes.taskArns) allTaskArns.push(...listRes.taskArns);
-      nextToken = listRes.nextToken;
-    } while (nextToken);
-  }
-  // describeTasksは100件ずつ
-  const taskDetails: any[] = [];
+  
+  // 各ステータスごとにlistTasksを並列実行し、結果をまとめる
+  const allTaskArnsPromises = STATUSES.map(async (status): Promise<string[]> => {
+    const paginator = paginateListTasks(
+      {
+        client,
+        pageSize: 100
+      },
+      {
+        cluster: CLUSTER_NAME,
+        desiredStatus: status,
+      }
+    );
+    
+    const taskArnsArrays: string[][] = [];
+    for await (const page of paginator) {
+      const pageArns = page.taskArns ?? [];
+      taskArnsArrays.push(pageArns);
+    }
+    
+    return taskArnsArrays.flat();
+  });
+  
+  const allTaskArnsArrays = await Promise.all(allTaskArnsPromises);
+  const allTaskArns = allTaskArnsArrays.flat();
+
+  // describeTasksは100件ずつ処理
+  const taskDetailPromises: Promise<Task[]>[] = [];
   for (let i = 0; i < allTaskArns.length; i += 100) {
     const arns = allTaskArns.slice(i, i + 100);
     if (arns.length === 0) continue;
-    const descRes = await client.send(
+    
+    const promise = client.send(
       new DescribeTasksCommand({
         cluster: CLUSTER_NAME,
         tasks: arns,
       })
-    );
-    if (descRes.tasks) taskDetails.push(...descRes.tasks);
+    ).then(descRes => descRes.tasks ?? []);
+    
+    taskDetailPromises.push(promise);
   }
-  // containerOverridesが存在する場合のみ、コマンドはoverridesから取得
-  // タスク定義情報も取得する
-  const taskDefinitionArns = [...new Set(taskDetails.map(task => task.taskDefinitionArn).filter(Boolean))];
-  const taskDefinitions = new Map();
   
-  // タスク定義を取得（100件ずつの制限はないので一度に取得）
-  for (const arn of taskDefinitionArns) {
+  const taskDetailArrays = await Promise.all(taskDetailPromises);
+  const taskDetails = taskDetailArrays.flat();
+
+  // タスク定義ARNを重複除去
+  const taskDefinitionArns = [...new Set(
+    taskDetails
+      .map(task => task.taskDefinitionArn)
+      .filter((arn): arn is string => arn !== undefined)
+  )];
+  
+  // タスク定義を並列取得
+  const taskDefinitionPromises = taskDefinitionArns.map(async (arn: string) => {
     const taskDefRes = await client.send(
       new DescribeTaskDefinitionCommand({
         taskDefinition: arn,
       })
     );
-    if (taskDefRes.taskDefinition) {
-      taskDefinitions.set(arn, taskDefRes.taskDefinition);
-    }
-  }
+    return { arn, taskDefinition: taskDefRes.taskDefinition };
+  });
   
-  const data = taskDetails.map((task) => {
-    // containerOverridesはtask.overrides?.containerOverrides
-    const overrideMap = new Map<string, string[] | undefined>();
-    if (task.overrides && Array.isArray(task.overrides.containerOverrides)) {
-      for (const o of task.overrides.containerOverrides) {
-        if (o.name) overrideMap.set(o.name, o.command);
-      }
-    }
+  const taskDefinitionResults = await Promise.all(taskDefinitionPromises);
+  const taskDefinitions = new Map<string, TaskDefinition>(
+    taskDefinitionResults
+      .filter((result): result is { arn: string; taskDefinition: TaskDefinition } => 
+        result.taskDefinition !== undefined
+      )
+      .map(result => [result.arn, result.taskDefinition])
+  );
+  
+  const data = taskDetails.map((task): TaskData => {
+    // containerOverridesのマップを作成
+    const overrideMap = new Map<string, string[]>(
+      (task.overrides?.containerOverrides ?? [])
+        .filter((o): o is ContainerOverride & { name: string; command: string[] } => 
+          o.name !== undefined && o.command !== undefined
+        )
+        .map(o => [o.name, o.command])
+    );
     
     // タスク定義情報を取得
-    const taskDefinition = taskDefinitions.get(task.taskDefinitionArn);
+    const taskDefinition = task.taskDefinitionArn ? taskDefinitions.get(task.taskDefinitionArn) : undefined;
     const revision = task.taskDefinitionArn?.split(":").pop();
     
     // appコンテナのロググループ名とログストリーム名を取得
-    const appContainer = taskDefinition?.containerDefinitions?.find((container: any) => container.name === 'app');
-    let appLogGroup = '';
-    let appLogStreamName = '';
-    if (appContainer?.logConfiguration?.logDriver === 'awslogs') {
-      const logGroup = appContainer.logConfiguration.options?.['awslogs-group'];
-      const taskId = task.taskArn?.split('/').pop();
-      if (logGroup && taskId) {
-        appLogGroup = logGroup;
-        appLogStreamName = `${appContainer.logConfiguration.options?.['awslogs-stream-prefix']}/app/${taskId}`;
-      }
-    }
+    const appContainer = taskDefinition?.containerDefinitions?.find((container) => container.name === 'app');
+    const appLogGroup = appContainer?.logConfiguration?.logDriver === 'awslogs' 
+      ? appContainer.logConfiguration.options?.['awslogs-group'] ?? ''
+      : '';
+    
+    const taskId = task.taskArn?.split('/').pop();
+    const appLogStreamName = appLogGroup && taskId && appContainer?.logConfiguration?.options?.['awslogs-stream-prefix']
+      ? `${appContainer.logConfiguration.options['awslogs-stream-prefix']}/app/${taskId}`
+      : '';
     
     return {
       clusterArn: task.clusterArn,
@@ -110,27 +142,30 @@ export async function loader(args: LoaderFunctionArgs) {
       revision: revision,
       appLogGroup: appLogGroup,
       appLogStreamName: appLogStreamName,
-      containers: (task.containers || []).map((c: Container) => ({
+      containers: (task.containers ?? []).map((c: Container) => ({
         name: c.name,
         command: c.name ? overrideMap.get(c.name) : undefined,
       })),
     };
   });
+  
   return { tasks: data };
 }
 
+type TaskData = {
+  clusterArn?: string;
+  taskArn?: string;
+  startedAt?: Date;
+  lastStatus?: string;
+  family?: string;
+  revision?: string;
+  appLogGroup?: string;
+  appLogStreamName?: string;
+  containers: Array<{ name?: string; command?: string[] }>;
+};
+
 type LoaderData = {
-  tasks: Array<{
-    clusterArn?: string;
-    taskArn?: string;
-    startedAt?: string;
-    lastStatus?: string;
-    family?: string;
-    revision?: string;
-    appLogGroup?: string;
-    appLogStreamName?: string;
-    containers: Array<{ name?: string; command?: string[] }>;
-  }>;
+  tasks: TaskData[];
 };
 
 export default function Home() {
