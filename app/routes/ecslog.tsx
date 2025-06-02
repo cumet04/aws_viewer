@@ -4,6 +4,7 @@
 // ### データ取得方法
 // - 指定したロググループに "detail-type": "ECS Task State Change" のイベントが記録されていることを前提とする
 // - ロググループ名は環境変数LOG_GROUP_NAMEから取得する
+// - ログエントリは直近24時間分とする
 // - ログエントリのうち、startedByが "ecs-svc/" で始まるものは除外する
 //
 // ### 表示内容
@@ -25,10 +26,15 @@ async function fetchRawEvents(logGroupName: string, limit: number = 200) {
   const client = new CloudWatchLogsClient({});
   let nextToken: string | undefined = undefined;
   const rawEvents: any[] = [];
+  
+  // 全ログだと時間がかかりすぎるので、直近24hに限定
+  const startTime = new Date().getTime() - (24 * 60 * 60 * 1000);
+  
   do {
     const res: FilterLogEventsCommandOutput = await client.send(
       new FilterLogEventsCommand({
         logGroupName,
+        startTime,
         nextToken,
         limit: 50,
       })
