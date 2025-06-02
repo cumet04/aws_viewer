@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd $(dirname "$0")/..
 
-IMAGE_TAG=aws_viewer:latest
+IMAGE_TAG=aws_viewer:$(git rev-parse --short HEAD)
 CONTAINER_NAME=aws_viewer_container
 PORT=20080
 
