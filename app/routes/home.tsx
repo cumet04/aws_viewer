@@ -47,58 +47,70 @@ export default function Home() {
 	return (
 		<div className="p-4">
 			<h1 className="text-xl font-bold mb-4">ECSタスク一覧</h1>
-			<table className="min-w-full border border-gray-300">
-				<thead>
-					<tr className="bg-gray-100">
-						<th className="border px-2 py-1">クラスタ</th>
-						<th className="border px-2 py-1">タスクID</th>
-						<th className="border px-2 py-1">開始時刻</th>
-						<th className="border px-2 py-1">ステータス</th>
-						<th className="border px-2 py-1">タスク定義</th>
-						<th className="border px-2 py-1">コンテナ実行コマンド</th>
-					</tr>
-				</thead>
-				<tbody>
-					{tasks.map((task) => (
-						<tr key={task.taskArn}>
-							<td className="border px-2 py-1">
-								{task.clusterArn?.split("/").pop()}
-							</td>
-							<td className="border px-2 py-1">
-								{task.taskArn ? (
+			<div className="overflow-x-auto bg-white shadow rounded-lg">
+				<table className="min-w-full divide-y divide-gray-200">
+					<thead className="bg-gray-50">
+						<tr>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								クラスタ
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								タスクID
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								開始時刻
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								ステータス
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								タスク定義
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								コンテナ実行コマンド
+							</th>
+						</tr>
+					</thead>
+					<tbody className="bg-white divide-y divide-gray-200">
+						{tasks.map((task) => (
+							<tr key={task.taskArn} className="hover:bg-gray-100">
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{task.clusterArn.split("/").pop()!}
+								</td>
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
-										to={`/tasks/${task.taskArn.split("/").pop()}`}
-										className="text-blue-600 hover:text-blue-800 underline"
+										to={`/tasks/${task.taskArn.split("/").pop()!}`}
+										className="hover:text-blue-800 underline"
 									>
 										{task.taskArn.split("/").pop()}
 									</Link>
-								) : (
-									"-"
-								)}
-							</td>
-							<td className="border px-2 py-1">
-								{task.startedAt
-									? new Date(task.startedAt).toLocaleString()
-									: "-"}
-							</td>
-							<td className="border px-2 py-1">{task.lastStatus}</td>
-							<td className="border px-2 py-1">{task.taskdef ?? "-"}</td>
-							<td className="border px-2 py-1">
-								{task.containers.length > 0
-									? task.containers.map((c) =>
-											c.command && c.command.length > 0 ? (
-												<div key={c.name}>
-													<span className="font-mono text-xs">{c.name}</span>:{" "}
-													{c.command.join(" ")}
-												</div>
-											) : null,
-										)
-									: "-"}
-							</td>
-						</tr>
-					))}
-				</tbody>
-			</table>
+								</td>
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{new Date(task.startedAt).toLocaleString()}
+								</td>
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{task.lastStatus}
+								</td>
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+									{task.taskdef}
+								</td>
+								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
+									{task.containers.length > 0
+										? task.containers.map((c) =>
+												c.command && c.command.length > 0 ? (
+													<div key={c.name}>
+														<span className="font-mono text-xs">{c.name}</span>:{" "}
+														{c.command.join(" ")}
+													</div>
+												) : null,
+											)
+										: "-"}
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	);
 }
