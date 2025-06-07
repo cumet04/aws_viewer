@@ -16,7 +16,6 @@ export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
 		);
 
 		return {
-			clusterArn: task.clusterArn!,
 			taskArn: task.taskArn!,
 			startedAt: task.startedAt!,
 			lastStatus: task.lastStatus!,
@@ -33,7 +32,6 @@ export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
 
 type LoaderData = {
 	tasks: {
-		clusterArn: string;
 		taskArn: string;
 		startedAt: Date;
 		lastStatus: string;
@@ -46,14 +44,11 @@ export default function Home() {
 	const { tasks } = useLoaderData() as LoaderData;
 	return (
 		<div className="p-4">
-			<h1 className="text-xl font-bold mb-4">ECSタスク一覧</h1>
+			<h1 className="text-xl font-bold mb-4">{CLUSTER_NAME} のタスク一覧</h1>
 			<div className="overflow-x-auto bg-white shadow rounded-lg">
 				<table className="min-w-full divide-y divide-gray-200">
 					<thead className="bg-gray-50">
 						<tr>
-							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								クラスタ
-							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								タスクID
 							</th>
@@ -74,9 +69,6 @@ export default function Home() {
 					<tbody className="bg-white divide-y divide-gray-200">
 						{tasks.map((task) => (
 							<tr key={task.taskArn} className="hover:bg-gray-100">
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.clusterArn.split("/").pop()!}
-								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
 										to={`/tasks/${task.taskArn.split("/").pop()!}`}
@@ -86,9 +78,17 @@ export default function Home() {
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{new Date(task.startedAt).toLocaleString()}
+									{new Date(task.startedAt).toLocaleString("ja-JP")}
 								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+								<td
+									className={`px-6 py-1 whitespace-nowrap text-sm ${
+										{
+											RUNNING: "bg-green-100 text-green-800",
+											STOPPED: "bg-red-100 text-red-800",
+											PENDING: "bg-yellow-100 text-yellow-800",
+										}[task.lastStatus]
+									}`}
+								>
 									{task.lastStatus}
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
