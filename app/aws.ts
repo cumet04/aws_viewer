@@ -1,7 +1,9 @@
 import {
 	CloudWatchLogsClient,
 	paginateFilterLogEvents,
+	paginateGetLogEvents,
 	type FilteredLogEvent,
+	type OutputLogEvent,
 } from "@aws-sdk/client-cloudwatch-logs";
 import {
 	DescribeTaskDefinitionCommand,
@@ -82,6 +84,34 @@ export async function filterLogEvents(
 	);
 
 	const events: FilteredLogEvent[] = [];
+	for await (const page of paginator) events.push(...(page.events ?? []));
+
+	return events;
+}
+
+/**
+ * 特定のログストリームからログイベントを取得します。
+ * 最新のログから指定された件数分を取得します。
+ *
+ * @param logGroupName - CloudWatch Logsのロググループ名
+ * @param logStreamName - CloudWatch Logsのログストリーム名
+ * @param limit - 取得するログイベントの最大件数（数百件程度を想定）
+ * @returns Promise<OutputLogEvent[]> - ログイベントの配列
+ */
+export async function getLogEvents(
+	logGroupName: string,
+	logStreamName: string,
+	limit: number,
+): Promise<OutputLogEvent[]> {
+	const paginator = paginateGetLogEvents(
+		{
+			client: new CloudWatchLogsClient({}),
+			stopOnSameToken: true, // GetLogEventsのpaginate版はこのオプションを明示しないと無限ループする https://github.com/aws/aws-sdk-js-v3/issues/3490
+		},
+		{ logGroupName, logStreamName, startFromHead: false, limit },
+	);
+
+	const events: OutputLogEvent[] = [];
 	for await (const page of paginator) events.push(...(page.events ?? []));
 
 	return events;

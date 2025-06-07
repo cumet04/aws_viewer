@@ -1,10 +1,19 @@
 // # ページ仕様
 // ECSタスクの詳細ページを表示するためのページです。
 // URLパラメータでタスクIDが指定されているので、そのIDからタスクの詳細情報を取得し、表示します。
-// あわせて、タスクが紐づいているタスク定義の詳細情報も表示します。
+// タスク情報にcontainerOverrideが含まれる場合は、appコンテナの実行コマンドも表示します。
+// あわせて、タスクが紐づいている各コンテナのログデータも表示します。
 
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
-import { describeTasks, describeTaskDefinitions, listEcsTaskArns } from "~/aws";
+import {
+	describeTasks,
+	describeTaskDefinitions,
+	listEcsTaskArns,
+	getLogEvents,
+	getLogStream,
+} from "~/aws";
+import type { ContainerOverride } from "@aws-sdk/client-ecs";
+import type { OutputLogEvent } from "@aws-sdk/client-cloudwatch-logs";
 
 // 表示用データの型定義
 interface DisplayTaskData {
@@ -29,38 +38,17 @@ interface DisplayTaskData {
 		cpu?: string;
 		memory?: string;
 	}>;
+	overrides?: Array<{
+		name: string;
+		command?: string[];
+	}>;
 }
 
-interface DisplayTaskDefinitionData {
-	taskDefinitionArn: string;
-	family: string;
-	revision: number;
-	status: string;
-	cpu?: string;
-	memory?: string;
-	networkMode?: string;
-	requiresCompatibilities?: string[];
-	containerDefinitions: Array<{
-		name: string;
-		image: string;
-		cpu?: number;
-		memory?: number;
-		memoryReservation?: number;
-		essential?: boolean;
-		portMappings?: Array<{
-			containerPort?: number;
-			hostPort?: number;
-			protocol?: string;
-		}>;
-		environment?: Array<{
-			name?: string;
-			value?: string;
-		}>;
-		logConfiguration?: {
-			logDriver?: string;
-			options?: Record<string, string>;
-		};
-	}>;
+interface ContainerLogData {
+	containerName: string;
+	logGroupName?: string;
+	logStreamName?: string;
+	logs: OutputLogEvent[];
 }
 
 // クラスタ名は環境変数から取得
@@ -86,11 +74,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 	const task = tasks[0];
 
-	// タスク定義詳細を取得
+	// ログ取得のためだけにタスク定義詳細を取得
 	const taskDefinitions = await describeTaskDefinitions([
 		task.taskDefinitionArn!,
 	]);
 	const taskDefinition = taskDefinitions[0];
+
+	// containerOverrideの情報を取得
+	const overrides =
+		task.overrides?.containerOverrides?.map((override: ContainerOverride) => ({
+			name: override.name!,
+			command: override.command,
+		})) || [];
 
 	// 表示用データに変換
 	const displayTask: DisplayTaskData = {
@@ -117,54 +112,67 @@ export async function loader({ params }: LoaderFunctionArgs) {
 			cpu: container.cpu?.toString(),
 			memory: container.memory?.toString(),
 		})),
+		overrides: overrides.length > 0 ? overrides : undefined,
 	};
 
-	const displayTaskDefinition: DisplayTaskDefinitionData = {
-		taskDefinitionArn: taskDefinition.taskDefinitionArn!,
-		family: taskDefinition.family!,
-		revision: taskDefinition.revision!,
-		status: taskDefinition.status!,
-		cpu: taskDefinition.cpu,
-		memory: taskDefinition.memory,
-		networkMode: taskDefinition.networkMode,
-		requiresCompatibilities: taskDefinition.requiresCompatibilities,
-		containerDefinitions: (taskDefinition.containerDefinitions ?? []).map(
-			(containerDef) => ({
-				name: containerDef.name!,
-				image: containerDef.image!,
-				cpu: containerDef.cpu,
-				memory: containerDef.memory,
-				memoryReservation: containerDef.memoryReservation,
-				essential: containerDef.essential,
-				portMappings: containerDef.portMappings?.map((pm) => ({
-					containerPort: pm.containerPort,
-					hostPort: pm.hostPort,
-					protocol: pm.protocol,
-				})),
-				environment: containerDef.environment?.map((env) => ({
-					name: env.name,
-					value: env.value,
-				})),
-				logConfiguration: containerDef.logConfiguration
-					? {
-							logDriver: containerDef.logConfiguration.logDriver,
-							options: containerDef.logConfiguration.options,
-						}
-					: undefined,
-			}),
-		),
-	};
+	// 各コンテナのログデータを取得
+	const containerLogs: ContainerLogData[] = [];
+	const logLimit = 50; // 取得するログ件数
 
-	return { task: displayTask, taskDefinition: displayTaskDefinition };
+	for (const container of displayTask.containers) {
+		const logStream = getLogStream(
+			taskDefinition,
+			displayTask.taskId,
+			container.name,
+		);
+
+		if (logStream) {
+			try {
+				const logs = await getLogEvents(
+					logStream.group,
+					logStream.stream,
+					logLimit,
+				);
+				containerLogs.push({
+					containerName: container.name,
+					logGroupName: logStream.group,
+					logStreamName: logStream.stream,
+					logs: logs,
+				});
+			} catch (error) {
+				// ログの取得に失敗した場合でもエラーにならないようにする
+				console.warn(
+					`Failed to fetch logs for container ${container.name}:`,
+					error,
+				);
+				containerLogs.push({
+					containerName: container.name,
+					logGroupName: logStream.group,
+					logStreamName: logStream.stream,
+					logs: [],
+				});
+			}
+		} else {
+			containerLogs.push({
+				containerName: container.name,
+				logs: [],
+			});
+		}
+	}
+
+	return {
+		task: displayTask,
+		containerLogs,
+	};
 }
 
 type LoaderData = {
 	task: DisplayTaskData;
-	taskDefinition: DisplayTaskDefinitionData;
+	containerLogs: ContainerLogData[];
 };
 
 export default function TaskShow() {
-	const { task, taskDefinition } = useLoaderData() as LoaderData;
+	const { task, containerLogs } = useLoaderData() as LoaderData;
 
 	return (
 		<div className="p-4 max-w-6xl mx-auto">
@@ -251,6 +259,33 @@ export default function TaskShow() {
 				</div>
 			</div>
 
+			{/* コンテナオーバーライド情報（存在する場合のみ表示） */}
+			{task.overrides && task.overrides.length > 0 && (
+				<div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
+					<h2 className="text-lg font-semibold mb-4">コンテナオーバーライド</h2>
+					<div className="space-y-4">
+						{task.overrides.map((override) => (
+							<div
+								key={override.name}
+								className="border border-gray-200 rounded p-4"
+							>
+								<h3 className="font-medium mb-2">{override.name}</h3>
+								{override.command && override.command.length > 0 && (
+									<div>
+										<div className="text-sm font-medium text-gray-700 mb-2">
+											実行コマンド:
+										</div>
+										<div className="bg-gray-900 text-green-400 p-3 rounded font-mono text-sm overflow-x-auto">
+											{override.command.join(" ")}
+										</div>
+									</div>
+								)}
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+
 			{/* コンテナ情報 */}
 			<div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
 				<h2 className="text-lg font-semibold mb-4">実行中のコンテナ</h2>
@@ -300,156 +335,54 @@ export default function TaskShow() {
 				</div>
 			</div>
 
-			{/* タスク定義情報 */}
-			<div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
-				<h2 className="text-lg font-semibold mb-4">タスク定義情報</h2>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-					<div>
-						<div className="block text-sm font-medium text-gray-700">
-							ファミリー
-						</div>
-						<div className="mt-1 text-sm">{taskDefinition.family}</div>
-					</div>
-					<div>
-						<div className="block text-sm font-medium text-gray-700">
-							リビジョン
-						</div>
-						<div className="mt-1 text-sm">{taskDefinition.revision}</div>
-					</div>
-					<div>
-						<div className="block text-sm font-medium text-gray-700">
-							ステータス
-						</div>
-						<div className="mt-1 text-sm">{taskDefinition.status}</div>
-					</div>
-					<div>
-						<div className="block text-sm font-medium text-gray-700">
-							ネットワークモード
-						</div>
-						<div className="mt-1 text-sm">
-							{taskDefinition.networkMode || "-"}
-						</div>
-					</div>
-					<div>
-						<div className="block text-sm font-medium text-gray-700">CPU</div>
-						<div className="mt-1 text-sm">{taskDefinition.cpu || "-"}</div>
-					</div>
-					<div>
-						<div className="block text-sm font-medium text-gray-700">
-							メモリ
-						</div>
-						<div className="mt-1 text-sm">{taskDefinition.memory || "-"}</div>
-					</div>
-					<div className="col-span-2">
-						<div className="block text-sm font-medium text-gray-700">
-							必要な互換性
-						</div>
-						<div className="mt-1 text-sm">
-							{taskDefinition.requiresCompatibilities?.join(", ") || "-"}
-						</div>
-					</div>
-				</div>
-
-				{/* コンテナ定義 */}
-				<h3 className="text-md font-semibold mb-3">コンテナ定義</h3>
-				<div className="space-y-4">
-					{taskDefinition.containerDefinitions.map((containerDef) => (
+			{/* コンテナログ */}
+			<div className="bg-white border border-gray-300 rounded-lg p-4">
+				<h2 className="text-lg font-semibold mb-4">コンテナログ</h2>
+				<div className="space-y-6">
+					{containerLogs.map((containerLog) => (
 						<div
-							key={containerDef.name}
-							className="border border-gray-200 rounded p-4"
+							key={containerLog.containerName}
+							className="border border-gray-200 rounded-lg p-4"
 						>
-							<h4 className="font-medium mb-2">{containerDef.name}</h4>
-							<div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-								<div>
-									<span className="font-medium">イメージ:</span>
-									<div className="font-mono text-xs bg-gray-50 p-1 rounded mt-1">
-										{containerDef.image}
-									</div>
-								</div>
-								<div>
-									<span className="font-medium">Essential:</span>{" "}
-									{containerDef.essential ? "Yes" : "No"}
-								</div>
-								<div>
-									<span className="font-medium">CPU:</span>{" "}
-									{containerDef.cpu || "-"}
-								</div>
-								<div>
-									<span className="font-medium">メモリ:</span>{" "}
-									{containerDef.memory || "-"}
-								</div>
-								{containerDef.memoryReservation && (
-									<div>
-										<span className="font-medium">メモリ予約:</span>{" "}
-										{containerDef.memoryReservation}
-									</div>
+							<h3 className="text-md font-semibold mb-3 flex items-center">
+								<span className="mr-2">{containerLog.containerName}</span>
+								{containerLog.logGroupName && (
+									<span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
+										{containerLog.logGroupName}
+									</span>
 								)}
+							</h3>
 
-								{/* ポートマッピング */}
-								{containerDef.portMappings &&
-									containerDef.portMappings.length > 0 && (
-										<div className="col-span-2">
-											<span className="font-medium">ポートマッピング:</span>
-											<div className="mt-1 space-y-1">
-												{containerDef.portMappings.map((pm) => (
-													<div
-														key={`${pm.containerPort}-${pm.hostPort}`}
-														className="text-xs bg-gray-50 p-1 rounded"
-													>
-														Container: {pm.containerPort} → Host: {pm.hostPort}{" "}
-														({pm.protocol})
-													</div>
-												))}
-											</div>
+							{containerLog.logs.length > 0 ? (
+								<div className="bg-black text-green-400 p-3 rounded-md overflow-auto max-h-96 font-mono text-sm">
+									{containerLog.logs.map((log) => (
+										// biome-ignore lint/correctness/useJsxKeyInIterable: <explanation>
+										<div className="mb-1">
+											<span className="text-gray-400">
+												{log.timestamp
+													? new Date(log.timestamp).toLocaleString()
+													: ""}
+											</span>{" "}
+											<span>{log.message}</span>
 										</div>
-									)}
+									))}
+								</div>
+							) : (
+								<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
+									{containerLog.logGroupName
+										? "ログデータが見つかりません"
+										: "ログ設定が見つかりません（awslogs以外のログドライバーまたは設定なし）"}
+								</div>
+							)}
 
-								{/* 環境変数 */}
-								{containerDef.environment &&
-									containerDef.environment.length > 0 && (
-										<div className="col-span-2">
-											<span className="font-medium">環境変数:</span>
-											<div className="mt-1 max-h-32 overflow-y-auto">
-												{containerDef.environment.map((env) => (
-													<div
-														key={env.name}
-														className="text-xs bg-gray-50 p-1 rounded mb-1"
-													>
-														<span className="font-mono">{env.name}</span> ={" "}
-														<span className="font-mono">{env.value}</span>
-													</div>
-												))}
-											</div>
-										</div>
-									)}
-
-								{/* ログ設定 */}
-								{containerDef.logConfiguration && (
-									<div className="col-span-2">
-										<span className="font-medium">ログ設定:</span>
-										<div className="mt-1 text-xs bg-gray-50 p-2 rounded">
-											<div>
-												<span className="font-medium">ドライバー:</span>{" "}
-												{containerDef.logConfiguration.logDriver}
-											</div>
-											{containerDef.logConfiguration.options && (
-												<div className="mt-1">
-													<span className="font-medium">オプション:</span>
-													<div className="ml-2">
-														{Object.entries(
-															containerDef.logConfiguration.options,
-														).map(([key, value]) => (
-															<div key={key}>
-																{key}: {value}
-															</div>
-														))}
-													</div>
-												</div>
-											)}
-										</div>
-									</div>
-								)}
-							</div>
+							{containerLog.logStreamName && (
+								<div className="mt-2 text-xs text-gray-500">
+									ログストリーム:{" "}
+									<span className="font-mono">
+										{containerLog.logStreamName}
+									</span>
+								</div>
+							)}
 						</div>
 					))}
 				</div>
