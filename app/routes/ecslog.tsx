@@ -1,10 +1,8 @@
 import { type LoaderFunctionArgs, useLoaderData } from "react-router";
 import { filterLogEvents, type EcsTaskStateChangeEvent } from "~/aws";
 
-// ロググループ名は環境変数から取得
 const LOG_GROUP_NAME = process.env.LOG_GROUP_NAME ?? "";
 
-// 表示用データの型定義
 interface DisplayEvent {
 	eventId: string;
 	family: string;
@@ -12,24 +10,14 @@ interface DisplayEvent {
 	startedAt: Date;
 	stoppedAt: Date;
 	durationSec?: number;
-	prettyMessage: string;
 }
 
-// 表示用データへ加工する関数
 function mapEventToDisplay(e: EcsTaskStateChangeEvent): DisplayEvent {
 	const detail = e.detail;
 
-	// containerOverridesからappコンテナのコマンドを取得
-	let appCommand: string | undefined = undefined;
-	const overrides = detail.overrides?.containerOverrides;
-	if (overrides) {
-		const appContainer = overrides.find(
-			(container) => container.name === "app",
-		);
-		if (appContainer?.command) {
-			appCommand = appContainer.command.join(" ");
-		}
-	}
+	const appCommand = detail.overrides?.containerOverrides
+		?.find((c) => c.name === "app")
+		?.command?.join(" ");
 
 	const startedAt = detail.startedAt!;
 	const stoppedAt = detail.stoppedAt!;
@@ -45,7 +33,6 @@ function mapEventToDisplay(e: EcsTaskStateChangeEvent): DisplayEvent {
 		startedAt,
 		stoppedAt,
 		durationSec,
-		prettyMessage: JSON.stringify(e),
 	};
 }
 
@@ -84,7 +71,6 @@ export default function Ecslog() {
 						<th className="border px-2 py-1">開始時刻</th>
 						<th className="border px-2 py-1">終了時刻</th>
 						<th className="border px-2 py-1">実行時間(s)</th>
-						<th className="border px-2 py-1">message(JSON)</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -106,7 +92,6 @@ export default function Ecslog() {
 							<td className="border px-2 py-1 align-top">
 								{event.durationSec ?? "-"}
 							</td>
-							{/* <td className="border px-2 py-1 font-mono text-xs whitespace-pre-wrap text-left align-top">{event.prettyMessage}</td> */}
 						</tr>
 					))}
 				</tbody>
