@@ -5,6 +5,7 @@
 ## TypeScriptのコードの書き方
 * 変数や引数にはanyやunknownではない具体的な型を指定してください
 * letやvarではなくconstを使用できるようなコードにしてください。またArrayに対するpushやpopなどの変更を伴うメソッドの仕様も避けてください
+* AWS SDKが提供する型に起因する属性がoptionalかつ xx|undefined である場合、その値の利用先では積極的に attribute! を使用してoptional成分を排除してください
 
 ## AWS SDKのコードの書き方
 * paginate系のメソッドを使用する場合は、paginatorを使用してください
