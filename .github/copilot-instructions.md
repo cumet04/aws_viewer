@@ -7,6 +7,9 @@
 * letやvarではなくconstを使用できるようなコードにしてください。またArrayに対するpushやpopなどの変更を伴うメソッドの仕様も避けてください
 * AWS SDKが提供する型に起因する属性がoptionalかつ xx|undefined である場合、その値の利用先では積極的に attribute! を使用してoptional成分を排除してください
 
+## React Routerのコードの書き方
+* loaderからコンポーネントに渡すpropsの型には、AWS SDKが提供する型をそのまま使わず、必要な属性のみを抽出して型定義してください
+
 ## AWS SDKのコードの書き方
 * paginate系のメソッドを使用する場合は、paginatorを使用してください
 * API戻り値に対しては、SDKで定義されている型を使用してください
