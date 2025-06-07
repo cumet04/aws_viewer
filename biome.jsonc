@@ -1,0 +1,16 @@
+{
+	"files": {
+		"include": ["/*", "app/**/*"],
+		"ignore": [".react-router/**/*"]
+	},
+	"linter": {
+		"rules": {
+			"style": {
+				// sdk提供の型や仮で作った型など、optional情報が壊れている型を多用せざるを得ないが
+				// それを使う際に変に ?? "" などすると半端に壊れない値を取り出せてしまうので、
+				// 利用先で問題がハッキリするようにランタイムはundefのままにする。
+				"noNonNullAssertion": "off"
+			}
+		}
+	}
+}

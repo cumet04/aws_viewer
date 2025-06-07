@@ -1,6 +1,0 @@
-{
-	"files": {
-		"include": ["/*", "app/**/*"],
-		"ignore": [".react-router/**/*"]
-	}
-}
