@@ -1,7 +1,9 @@
 import {
 	CloudWatchLogsClient,
 	paginateFilterLogEvents,
+	paginateGetLogEvents,
 	type FilteredLogEvent,
+	type OutputLogEvent,
 } from "@aws-sdk/client-cloudwatch-logs";
 import {
 	DescribeTaskDefinitionCommand,
@@ -87,6 +89,37 @@ export async function filterLogEvents(
 	return events;
 }
 
+/**
+ * 特定のログストリームからログイベントを取得します。
+ * 最新のログから指定された件数分を取得します。
+ *
+ * @param logGroupName - CloudWatch Logsのロググループ名
+ * @param logStreamName - CloudWatch Logsのログストリーム名
+ * @param limit - 取得するログイベントの最大件数（数百件程度を想定）
+ * @returns Promise<OutputLogEvent[]> - ログイベントの配列
+ */
+export async function getLogEvents(
+	logGroupName: string,
+	logStreamName: string,
+	limit: number,
+): Promise<OutputLogEvent[]> {
+	// FIXME: ログイベントが存在するのに空を返すことがある
+	// たぶんこれだと思うが https://qiita.com/mmclsntr/items/09ebfa3a6c717923ead4
+
+	const paginator = paginateGetLogEvents(
+		{
+			client: new CloudWatchLogsClient({}),
+			stopOnSameToken: true, // GetLogEventsのpaginate版はこのオプションを明示しないと無限ループする https://github.com/aws/aws-sdk-js-v3/issues/3490
+		},
+		{ logGroupName, logStreamName, startFromHead: false, limit },
+	);
+
+	const events: OutputLogEvent[] = [];
+	for await (const page of paginator) events.push(...(page.events ?? []));
+
+	return events;
+}
+
 export type EcsTaskStateChangeEvent = {
 	version: string;
 	id: string;
@@ -95,8 +128,55 @@ export type EcsTaskStateChangeEvent = {
 	account: string;
 	time: string;
 	region: string;
-	detail: Task; // ここ多分Taskであってると思う。確証は無い
+	detail: Task;
 };
+export function parseEcsTaskStateChangeEvent(
+	message: string,
+): EcsTaskStateChangeEvent {
+	const parsedEvent = JSON.parse(message) as EcsTaskStateChangeEvent;
+
+	// detail内のDateな属性はparseしただけではstringのままなので、明示的にDateに変換する
+	const detail = parsedEvent.detail;
+	const dateKeys: (keyof Task)[] = [
+		"createdAt",
+		"executionStoppedAt",
+		"pullStartedAt",
+		"pullStoppedAt",
+		"startedAt",
+		"stoppingAt",
+		"stoppedAt",
+		"connectivityAt",
+	];
+	for (const key of dateKeys) {
+		if (detail[key] && typeof detail[key] === "string") {
+			// @ts-expect-error detail[key] is string but Task[keyof Task] is Date
+			detail[key] = new Date(detail[key] as string);
+		}
+	}
+
+	// MEMO: 他に変換が必要な属性があるかもしれないが、調べてない。困ったら変換を足す
+
+	return parsedEvent;
+}
+
+// 過去タスクについてタスク詳細を取得したい場合、その情報源はECS State Changeのログしか存在しない。
+// その情報はただのログであり、タスクやイベントのIDでO(1)で取得できるようなものではない。
+// そのためなんらか別のかたちのデータストアを用意するしかなく、ここでは
+// 「ユースケース上、先に一覧見てるでしょ」という前提のもと、一覧を見たときにデータをタスクIDで引っ張れるように
+// キャッシュするようにしている。
+//
+// MEMO: IDのみで特定してるので、AWSアカウントやリージョンの違いが考慮されてない。
+// 一旦今のユースケースはそれでいいが、必要になったらなんか考える
+const finishedTaskCache: Record<string, Task> = {};
+export function storeFinishedTasks(tasks: Task[]) {
+	for (const task of tasks) {
+		const id = task.taskArn!.split("/").pop()!;
+		finishedTaskCache[id] = task;
+	}
+}
+export function getFinishedTask(taskId: string): Task | undefined {
+	return finishedTaskCache[taskId];
+}
 
 export function getLogStream(
 	taskdef: TaskDefinition,
