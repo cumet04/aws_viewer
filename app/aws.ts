@@ -125,8 +125,36 @@ export type EcsTaskStateChangeEvent = {
 	account: string;
 	time: string;
 	region: string;
-	detail: Task; // ここ多分Taskであってると思う。確証は無い
+	detail: Task;
 };
+export function parseEcsTaskStateChangeEvent(
+	message: string,
+): EcsTaskStateChangeEvent {
+	const parsedEvent = JSON.parse(message) as EcsTaskStateChangeEvent;
+
+	// detail内のDateな属性はparseしただけではstringのままなので、明示的にDateに変換する
+	const detail = parsedEvent.detail;
+	const dateKeys: (keyof Task)[] = [
+		"createdAt",
+		"executionStoppedAt",
+		"pullStartedAt",
+		"pullStoppedAt",
+		"startedAt",
+		"stoppingAt",
+		"stoppedAt",
+		"connectivityAt",
+	];
+	for (const key of dateKeys) {
+		if (detail[key] && typeof detail[key] === "string") {
+			// @ts-expect-error detail[key] is string but Task[keyof Task] is Date
+			detail[key] = new Date(detail[key] as string);
+		}
+	}
+
+	// MEMO: 他に変換が必要な属性があるかもしれないが、調べてない。困ったら変換を足す
+
+	return parsedEvent;
+}
 
 export function getLogStream(
 	taskdef: TaskDefinition,
