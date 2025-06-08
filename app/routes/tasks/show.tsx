@@ -4,7 +4,7 @@
 // タスク情報にcontainerOverrideが含まれる場合は、appコンテナの実行コマンドも表示します。
 // あわせて、タスクが紐づいている各コンテナのログデータも表示します。
 
-import { type LoaderFunctionArgs, useLoaderData } from "react-router";
+import { type LoaderFunctionArgs, useLoaderData, Link } from "react-router";
 import {
 	describeTasks,
 	describeTaskDefinitions,
@@ -13,6 +13,7 @@ import {
 	getLogStream,
 	getFinishedTask,
 } from "~/aws";
+import { getCurrentEnvironmentConfig } from "~/config/environment";
 import type { ContainerOverride } from "@aws-sdk/client-ecs";
 import type { OutputLogEvent } from "@aws-sdk/client-cloudwatch-logs";
 
@@ -52,11 +53,10 @@ interface ContainerLogData {
 	logs: OutputLogEvent[];
 }
 
-// クラスタ名は環境変数から取得
-const CLUSTER_NAME = process.env.CLUSTER_NAME ?? "";
-
-export async function loader({ params }: LoaderFunctionArgs) {
+// クラスタ名は環境設定から取得
+export async function loader({ params, request }: LoaderFunctionArgs) {
 	const taskId = params.id!;
+	const envConfig = getCurrentEnvironmentConfig();
 
 	const task = await (async () => {
 		// 一覧で取得済の過去タスクの場合はここで取れるので、取れたら終了
@@ -65,7 +65,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 		// 現在のクラスタ内のすべてのタスクから該当するタスクを検索
 		// タスクIDだけではARNが構築できないため、既存のlistEcsTaskArns関数を利用
-		const allTaskArns = await listEcsTaskArns(CLUSTER_NAME);
+		const allTaskArns = await listEcsTaskArns(envConfig.cluster_name);
 		const targetTaskArn = allTaskArns.find((arn) => arn.endsWith(`/${taskId}`));
 
 		if (!targetTaskArn) {
@@ -183,7 +183,22 @@ export default function TaskShow() {
 
 	return (
 		<div className="p-4 max-w-6xl mx-auto">
-			<h1 className="text-2xl font-bold mb-6">ECSタスク詳細</h1>
+			<div className="flex items-center justify-between mb-6">
+				<div className="flex items-center space-x-4">
+					<Link to="/" className="text-blue-600 hover:text-blue-800 underline">
+						← タスク一覧に戻る
+					</Link>
+					<h1 className="text-2xl font-bold">ECSタスク詳細</h1>
+				</div>
+				<div className="flex items-center space-x-4">
+					<Link
+						to="/config"
+						className="text-sm text-blue-600 hover:text-blue-800 underline"
+					>
+						環境設定
+					</Link>
+				</div>
+			</div>
 
 			{/* タスク基本情報 */}
 			<div className="bg-white border border-gray-300 rounded-lg p-4 mb-6">
