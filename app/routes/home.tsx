@@ -1,4 +1,4 @@
-import type { Container } from "@aws-sdk/client-ecs";
+import type { Task } from "@aws-sdk/client-ecs";
 import { type LoaderFunctionArgs, useLoaderData, Link } from "react-router";
 import { describeTasks, listEcsTaskArns } from "~/aws";
 
@@ -8,40 +8,35 @@ export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
 	const allTaskArns = await listEcsTaskArns(CLUSTER_NAME);
 	const taskDetails = await describeTasks(allTaskArns);
 
-	const data = taskDetails.map((task) => {
-		const overrideMap = new Map<string, string[]>(
-			(task.overrides!.containerOverrides ?? [])
-				.filter((o) => o.command)
-				.map((o) => [o.name!, o.command!]),
-		);
+	return { currentTasks: taskDetails.map(toCurrentTaskView) };
+}
 
-		return {
-			taskArn: task.taskArn!,
-			startedAt: task.startedAt!,
-			lastStatus: task.lastStatus!,
-			taskdef: task.taskDefinitionArn!.split(":task-definition/")[1],
-			containers: (task.containers ?? []).map((c: Container) => ({
-				name: c.name!,
-				command: c.name ? overrideMap.get(c.name) : undefined,
-			})),
-		};
-	});
+type CurrentTaskView = {
+	taskArn: string;
+	startedAt: Date;
+	lastStatus: string;
+	taskdef: string;
+	command: string | undefined;
+};
 
-	return { tasks: data };
+function toCurrentTaskView(task: Task): CurrentTaskView {
+	return {
+		taskArn: task.taskArn!,
+		startedAt: task.startedAt!,
+		lastStatus: task.lastStatus!,
+		taskdef: task.taskDefinitionArn!.split(":task-definition/")[1],
+		command: task.overrides?.containerOverrides
+			?.find((c) => c.name === "app")
+			?.command?.join(" "),
+	};
 }
 
 type LoaderData = {
-	tasks: {
-		taskArn: string;
-		startedAt: Date;
-		lastStatus: string;
-		taskdef: string;
-		containers: Array<{ name: string; command?: string[] }>;
-	}[];
+	currentTasks: CurrentTaskView[];
 };
 
 export default function Home() {
-	const { tasks } = useLoaderData() as LoaderData;
+	const { currentTasks } = useLoaderData<LoaderData>();
 	return (
 		<div className="p-4">
 			<h1 className="text-xl font-bold mb-4">{CLUSTER_NAME} のタスク一覧</h1>
@@ -67,7 +62,7 @@ export default function Home() {
 						</tr>
 					</thead>
 					<tbody className="bg-white divide-y divide-gray-200">
-						{tasks.map((task) => (
+						{currentTasks.map((task) => (
 							<tr key={task.taskArn} className="hover:bg-gray-100">
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
@@ -78,7 +73,7 @@ export default function Home() {
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{new Date(task.startedAt).toLocaleString("ja-JP")}
+									{task.startedAt?.toLocaleString("ja-JP")}
 								</td>
 								<td
 									className={`px-6 py-1 whitespace-nowrap text-sm ${
@@ -86,6 +81,7 @@ export default function Home() {
 											RUNNING: "bg-green-100 text-green-800",
 											STOPPED: "bg-red-100 text-red-800",
 											PENDING: "bg-yellow-100 text-yellow-800",
+											DEPROVISIONING: "bg-gray-100 text-gray-800",
 										}[task.lastStatus]
 									}`}
 								>
@@ -95,16 +91,7 @@ export default function Home() {
 									{task.taskdef}
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
-									{task.containers.length > 0
-										? task.containers.map((c) =>
-												c.command && c.command.length > 0 ? (
-													<div key={c.name}>
-														<span className="font-mono text-xs">{c.name}</span>:{" "}
-														{c.command.join(" ")}
-													</div>
-												) : null,
-											)
-										: "-"}
+									{task.command ?? ""}
 								</td>
 							</tr>
 						))}
