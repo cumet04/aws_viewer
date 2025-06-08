@@ -57,8 +57,18 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 				? "The requested page could not be found."
 				: error.statusText || details;
 	} else if (import.meta.env.DEV && error && error instanceof Error) {
+		if (error.message.includes("is not authorized to perform")) {
+			message = "AWS permission error";
+		} else if (
+			error.message.includes(
+				"The security token included in the request is expired",
+			)
+		) {
+			message = "AWS token expired";
+		} else {
+			stack = error.stack;
+		}
 		details = error.message;
-		stack = error.stack;
 	}
 
 	return (
