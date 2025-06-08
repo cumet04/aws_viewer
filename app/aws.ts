@@ -156,6 +156,25 @@ export function parseEcsTaskStateChangeEvent(
 	return parsedEvent;
 }
 
+// 過去タスクについてタスク詳細を取得したい場合、その情報源はECS State Changeのログしか存在しない。
+// その情報はただのログであり、タスクやイベントのIDでO(1)で取得できるようなものではない。
+// そのためなんらか別のかたちのデータストアを用意するしかなく、ここでは
+// 「ユースケース上、先に一覧見てるでしょ」という前提のもと、一覧を見たときにデータをタスクIDで引っ張れるように
+// キャッシュするようにしている。
+//
+// MEMO: IDのみで特定してるので、AWSアカウントやリージョンの違いが考慮されてない。
+// 一旦今のユースケースはそれでいいが、必要になったらなんか考える
+const finishedTaskCache: Record<string, Task> = {};
+export function storeFinishedTasks(tasks: Task[]) {
+	for (const task of tasks) {
+		const id = task.taskArn!.split("/").pop()!;
+		finishedTaskCache[id] = task;
+	}
+}
+export function getFinishedTask(taskId: string): Task | undefined {
+	return finishedTaskCache[taskId];
+}
+
 export function getLogStream(
 	taskdef: TaskDefinition,
 	taskId: string,

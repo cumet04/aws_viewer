@@ -11,6 +11,7 @@ import {
 	listEcsTaskArns,
 	getLogEvents,
 	getLogStream,
+	getFinishedTask,
 } from "~/aws";
 import type { ContainerOverride } from "@aws-sdk/client-ecs";
 import type { OutputLogEvent } from "@aws-sdk/client-cloudwatch-logs";
@@ -57,22 +58,28 @@ const CLUSTER_NAME = process.env.CLUSTER_NAME ?? "";
 export async function loader({ params }: LoaderFunctionArgs) {
 	const taskId = params.id!;
 
-	// 現在のクラスタ内のすべてのタスクから該当するタスクを検索
-	// タスクIDだけではARNが構築できないため、既存のlistEcsTaskArns関数を利用
-	const allTaskArns = await listEcsTaskArns(CLUSTER_NAME);
-	const targetTaskArn = allTaskArns.find((arn) => arn.endsWith(`/${taskId}`));
+	const task = await (async () => {
+		// 一覧で取得済の過去タスクの場合はここで取れるので、取れたら終了
+		const task = getFinishedTask(taskId);
+		if (task) return task;
 
-	if (!targetTaskArn) {
-		throw new Response("タスクが見つかりません", { status: 404 });
-	}
+		// 現在のクラスタ内のすべてのタスクから該当するタスクを検索
+		// タスクIDだけではARNが構築できないため、既存のlistEcsTaskArns関数を利用
+		const allTaskArns = await listEcsTaskArns(CLUSTER_NAME);
+		const targetTaskArn = allTaskArns.find((arn) => arn.endsWith(`/${taskId}`));
 
-	// タスク詳細を取得
-	const tasks = await describeTasks([targetTaskArn]);
-	if (tasks.length === 0) {
-		throw new Response("タスクが見つかりません", { status: 404 });
-	}
+		if (!targetTaskArn) {
+			throw new Response("タスクが見つかりません", { status: 404 });
+		}
 
-	const task = tasks[0];
+		// タスク詳細を取得
+		const tasks = await describeTasks([targetTaskArn]);
+		if (tasks.length === 0) {
+			throw new Response("タスクが見つかりません", { status: 404 });
+		}
+
+		return tasks[0];
+	})();
 
 	// ログ取得のためだけにタスク定義詳細を取得
 	const taskDefinitions = await describeTaskDefinitions([

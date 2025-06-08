@@ -5,6 +5,7 @@ import {
 	filterLogEvents,
 	listEcsTaskArns,
 	parseEcsTaskStateChangeEvent,
+	storeFinishedTasks,
 } from "~/aws";
 
 const CLUSTER_NAME = process.env.CLUSTER_NAME ?? "";
@@ -18,6 +19,7 @@ export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
 	const finishedTasks = (await filterLogEvents(LOG_GROUP_NAME, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
 		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"));
+	storeFinishedTasks(finishedTasks);
 
 	return {
 		currentTasks: currentTasks.map(toCurrentTaskView),
