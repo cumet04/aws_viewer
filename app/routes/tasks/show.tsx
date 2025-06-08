@@ -345,6 +345,11 @@ export default function TaskShow() {
 			{/* コンテナログ */}
 			<div className="bg-white border border-gray-300 rounded-lg p-4">
 				<h2 className="text-lg font-semibold mb-4">コンテナログ</h2>
+				{containerLogs.every((log) => log.logs.length === 0) && (
+					<div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded p-3 mb-4">
+						バグにより、ログが存在するのに空として表示される場合があります。その場合はAWSマネージドコンソールから確認ください
+					</div>
+				)}
 				<div className="space-y-6">
 					{containerLogs.map((containerLog) => (
 						<div

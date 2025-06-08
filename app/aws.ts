@@ -103,6 +103,9 @@ export async function getLogEvents(
 	logStreamName: string,
 	limit: number,
 ): Promise<OutputLogEvent[]> {
+	// FIXME: ログイベントが存在するのに空を返すことがある
+	// たぶんこれだと思うが https://qiita.com/mmclsntr/items/09ebfa3a6c717923ead4
+
 	const paginator = paginateGetLogEvents(
 		{
 			client: new CloudWatchLogsClient({}),
