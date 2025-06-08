@@ -1,0 +1,12 @@
+{
+	"envs": {
+		"staging": {
+			"cluster_name": "app-staging",
+			"log_group_name": "/aws/events/log-staging"
+		},
+		"production": {
+			"cluster_name": "app-production",
+			"log_group_name": "/aws/events/log-production"
+		}
+	}
+}
