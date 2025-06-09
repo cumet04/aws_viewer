@@ -7,16 +7,18 @@ import {
 	parseEcsTaskStateChangeEvent,
 	storeFinishedTasks,
 } from "~/aws";
+import { getCurrentEnvironmentConfig } from "~/config/environment";
 
-const CLUSTER_NAME = process.env.CLUSTER_NAME ?? "";
-const LOG_GROUP_NAME = process.env.LOG_GROUP_NAME ?? "";
+export async function loader({
+	request,
+}: LoaderFunctionArgs): Promise<LoaderData> {
+	const envConfig = getCurrentEnvironmentConfig();
 
-export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
-	const allTaskArns = await listEcsTaskArns(CLUSTER_NAME);
+	const allTaskArns = await listEcsTaskArns(envConfig.cluster_name);
 	const currentTasks = await describeTasks(allTaskArns);
 
 	const from = Date.now() - 24 * 60 * 60 * 1000; // 直近24時間分。ただちょっと多すぎてページ重いので、できればpaginateとかしたい
-	const finishedTasks = (await filterLogEvents(LOG_GROUP_NAME, from))
+	const finishedTasks = (await filterLogEvents(envConfig.log_group_name, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
 		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"));
 	storeFinishedTasks(finishedTasks);
@@ -24,6 +26,7 @@ export async function loader(args: LoaderFunctionArgs): Promise<LoaderData> {
 	return {
 		currentTasks: currentTasks.map(toCurrentTaskView),
 		finishedTasks: finishedTasks.map(toFinishedTaskView),
+		clusterName: envConfig.cluster_name,
 	};
 }
 
@@ -76,13 +79,25 @@ function toFinishedTaskView(task: Task): FinishedTaskView {
 type LoaderData = {
 	currentTasks: CurrentTaskView[];
 	finishedTasks: FinishedTaskView[];
+	clusterName: string;
 };
 
 export default function Home() {
-	const { currentTasks, finishedTasks } = useLoaderData<LoaderData>();
+	const { currentTasks, finishedTasks, clusterName } =
+		useLoaderData<LoaderData>();
 	return (
 		<div className="p-4">
-			<h1 className="text-xl font-bold mb-4">{CLUSTER_NAME} のタスク一覧</h1>
+			<div className="flex items-center justify-between mb-4">
+				<h1 className="text-xl font-bold">{clusterName} のタスク一覧</h1>
+				<div className="flex items-center space-x-4">
+					<Link
+						to="/config"
+						className="text-sm text-blue-600 hover:text-blue-800 underline"
+					>
+						環境設定
+					</Link>
+				</div>
+			</div>
 			<h2 className="text-lg font-semibold my-4">実行中のタスク</h2>
 			<div className="overflow-x-auto bg-white shadow rounded-lg">
 				<table className="min-w-full divide-y divide-gray-200">
