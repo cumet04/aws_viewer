@@ -14,20 +14,27 @@ export async function loader({
 }: LoaderFunctionArgs): Promise<LoaderData> {
 	const envConfig = getCurrentEnvironmentConfig();
 
-	const allTaskArns = await listEcsTaskArns(envConfig.cluster_name);
-	const currentTasks = await describeTasks(allTaskArns);
-
 	const from = Date.now() - 24 * 60 * 60 * 1000; // 直近24時間分。ただちょっと多すぎてページ重いので、できればpaginateとかしたい
-	const finishedTasks = (await filterLogEvents(envConfig.log_group_name, from))
+
+	return {
+		currentTasks: await currentTasks(envConfig.cluster_name),
+		finishedTasks: await finishedTasks(envConfig.log_group_name, from),
+		clusterName: envConfig.cluster_name,
+	};
+}
+
+async function currentTasks(clusterName: string) {
+	const arns = await listEcsTaskArns(clusterName);
+	const tasks = await describeTasks(arns);
+	return tasks.map(toCurrentTaskView);
+}
+
+async function finishedTasks(logName: string, from: number) {
+	const finishedTasks = (await filterLogEvents(logName, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
 		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"));
 	storeFinishedTasks(finishedTasks);
-
-	return {
-		currentTasks: currentTasks.map(toCurrentTaskView),
-		finishedTasks: finishedTasks.map(toFinishedTaskView),
-		clusterName: envConfig.cluster_name,
-	};
+	return finishedTasks.map(toFinishedTaskView);
 }
 
 type CurrentTaskView = {
