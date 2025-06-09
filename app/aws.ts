@@ -13,6 +13,7 @@ import {
 	type Task,
 	type TaskDefinition,
 } from "@aws-sdk/client-ecs";
+import { getCurrentEnvironmentName } from "./config/environment";
 
 /**
  * 指定したECSクラスター内の全てのタスクARN（RUNNING, PENDING, STOPPED）を取得します。
@@ -164,18 +165,19 @@ export function parseEcsTaskStateChangeEvent(
 // そのためなんらか別のかたちのデータストアを用意するしかなく、ここでは
 // 「ユースケース上、先に一覧見てるでしょ」という前提のもと、一覧を見たときにデータをタスクIDで引っ張れるように
 // キャッシュするようにしている。
-//
-// MEMO: IDのみで特定してるので、AWSアカウントやリージョンの違いが考慮されてない。
-// 一旦今のユースケースはそれでいいが、必要になったらなんか考える
-const finishedTaskCache: Record<string, Task> = {};
+const finishedTaskCache: Record<string, Record<string, Task>> = {};
 export function storeFinishedTasks(tasks: Task[]) {
+	const env = getCurrentEnvironmentName();
+	if (!finishedTaskCache[env]) finishedTaskCache[env] = {};
+
 	for (const task of tasks) {
 		const id = task.taskArn!.split("/").pop()!;
-		finishedTaskCache[id] = task;
+		finishedTaskCache[env][id] = task;
 	}
 }
 export function getFinishedTask(taskId: string): Task | undefined {
-	return finishedTaskCache[taskId];
+	const env = getCurrentEnvironmentName();
+	return finishedTaskCache[env][taskId];
 }
 
 export function getLogStream(
