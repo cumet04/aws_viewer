@@ -122,50 +122,38 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		overrides: overrides.length > 0 ? overrides : undefined,
 	};
 
-	// 各コンテナのログデータを取得
-	const containerLogs: ContainerLogData[] = [];
+	// 各コンテナのログデータを並列取得
 	const logLimit = 50; // 取得するログ件数
 
-	for (const container of displayTask.containers) {
-		const logStream = getLogStream(
-			taskDefinition,
-			displayTask.taskId,
-			container.name,
-		);
-
-		if (logStream) {
-			try {
-				const logs = await getLogEvents(
-					logStream.group,
-					logStream.stream,
-					logLimit,
-				);
-				containerLogs.push({
+	const containerLogs = await Promise.all(
+		displayTask.containers.map(async (container) => {
+			const logStream = getLogStream(
+				taskDefinition,
+				displayTask.taskId,
+				container.name,
+			);
+			if (!logStream) {
+				return {
 					containerName: container.name,
-					logGroupName: logStream.group,
-					logStreamName: logStream.stream,
-					logs: logs,
-				});
-			} catch (error) {
-				// ログの取得に失敗した場合でもエラーにならないようにする
-				console.warn(
-					`Failed to fetch logs for container ${container.name}:`,
-					error,
-				);
-				containerLogs.push({
-					containerName: container.name,
-					logGroupName: logStream.group,
-					logStreamName: logStream.stream,
+					logGroupName: undefined,
+					logStreamName: undefined,
 					logs: [],
-				});
+				};
 			}
-		} else {
-			containerLogs.push({
+
+			const logs = await getLogEvents(
+				logStream.group,
+				logStream.stream,
+				logLimit,
+			);
+			return {
 				containerName: container.name,
-				logs: [],
-			});
-		}
-	}
+				logGroupName: logStream.group,
+				logStreamName: logStream.stream,
+				logs: logs,
+			};
+		}),
+	);
 
 	return {
 		task: displayTask,
