@@ -144,9 +144,9 @@ export default function Home() {
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
 										to={`/tasks/${task.taskId}`}
-										className="hover:text-blue-800 underline"
+										className="hover:text-blue-800 underline font-mono"
 									>
-										{task.taskId}
+										{task.taskId.substring(0, 7)}
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -206,9 +206,9 @@ export default function Home() {
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
 										to={`/tasks/${task.taskId}`}
-										className="hover:text-blue-800 underline"
+										className="hover:text-blue-800 underline font-mono"
 									>
-										{task.taskId}
+										{task.taskId.substring(0, 7)}
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
