@@ -42,7 +42,8 @@ async function currentTasks(clusterName: string) {
 async function finishedTasks(logName: string, from: number) {
 	const finishedTasks = (await filterLogEvents(logName, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
-		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"));
+		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"))
+		.reverse();
 	storeFinishedTasks(finishedTasks);
 	return finishedTasks.map(toFinishedTaskView);
 }
@@ -69,6 +70,9 @@ function toCurrentTaskView(task: Task): CurrentTaskView {
 
 type FinishedTaskView = {
 	taskId: string;
+
+	// MEMO: タスク生成されたがコンテナ起動に失敗した場合にundefになる
+	// TODO: しかしこれだと一覧を開始時間でソートできないので、createdAtとかちゃんとありそうなやつにしたほうがいいかも
 	startedAt: Date | undefined;
 	stoppedAt: Date;
 	durationSec: number | undefined;
@@ -102,6 +106,10 @@ type LoaderData = {
 export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
+
+	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
+	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
+
 	return (
 		<div className="p-4">
 			<div className="flex items-center justify-between mb-4">
@@ -143,13 +151,13 @@ export default function Home() {
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
 									<Link
 										to={`/tasks/${task.taskId}`}
-										className="hover:text-blue-800 underline"
+										className="hover:text-blue-800 underline font-mono"
 									>
-										{task.taskId}
+										{task.taskId.substring(0, 7)}
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.startedAt?.toLocaleString("ja-JP")}
+									{toViewDate(task.startedAt)}
 								</td>
 								<td
 									className={`px-6 py-1 whitespace-nowrap text-sm ${
@@ -183,13 +191,7 @@ export default function Home() {
 								タスクID
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								開始時刻
-							</th>
-							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								終了時刻
-							</th>
-							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								実行時間(秒)
+								実行時間
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								タスク定義
@@ -200,36 +202,89 @@ export default function Home() {
 						</tr>
 					</thead>
 					<tbody className="bg-white divide-y divide-gray-200">
-						{finishedTasks.map((task) => (
-							<tr key={task.taskId} className="hover:bg-gray-100">
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
-									<Link
-										to={`/tasks/${task.taskId}`}
-										className="hover:text-blue-800 underline"
-									>
-										{task.taskId}
-									</Link>
+						{finishedTaskGroupKeys.flatMap((dateKey) => [
+							<tr key={dateKey}>
+								<td
+									colSpan={4}
+									className="bg-gray-100 text-gray-700 px-6 py-1 align-middle"
+									style={{
+										fontWeight: "normal",
+										fontSize: "0.875rem",
+										lineHeight: "1.25rem",
+									}}
+								>
+									{dateKey}
 								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.startedAt?.toLocaleString("ja-JP")}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.stoppedAt.toLocaleString("ja-JP")}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.durationSec}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.taskdef}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
-									{task.command ?? ""}
-								</td>
-							</tr>
-						))}
+							</tr>,
+							...finishedTaskGroups[dateKey].map((task) => (
+								<tr key={task.taskId} className="hover:bg-gray-100">
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
+										<Link
+											to={`/tasks/${task.taskId}`}
+											className="hover:text-blue-800 underline font-mono"
+										>
+											{task.taskId.substring(0, 7)}
+										</Link>
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{toViewDate(task.startedAt)} ~ {toViewDate(task.stoppedAt)}
+										{task.durationSec !== undefined && (
+											<span className="ml-2 text-xs text-gray-500">
+												({formatDuration(task.durationSec)})
+											</span>
+										)}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{task.taskdef}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
+										{task.command ?? ""}
+									</td>
+								</tr>
+							)),
+						])}
 					</tbody>
 				</table>
 			</div>
 		</div>
 	);
+}
+
+function toViewDate(date: Date | undefined): string {
+	if (!date) return "";
+
+	return date.toLocaleString("ja-JP", {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+}
+
+const groupTasksByStoppedDate = (
+	tasks: FinishedTaskView[],
+): Record<string, FinishedTaskView[]> => {
+	return tasks.reduce<Record<string, FinishedTaskView[]>>((acc, task) => {
+		const dateKey = task.stoppedAt.toLocaleDateString("ja-JP", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		});
+		if (!acc[dateKey]) {
+			acc[dateKey] = [];
+		}
+		acc[dateKey].push(task);
+		return acc;
+	}, {});
+};
+
+function formatDuration(durationSec: number | undefined): string {
+	if (durationSec === undefined) return "";
+	const hours = Math.floor(durationSec / 3600);
+	const minutes = Math.floor((durationSec % 3600) / 60);
+	const seconds = durationSec % 60;
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	const parts: string[] = [];
+	if (hours > 0) parts.push(`${hours}:`);
+	if (minutes > 0 || hours > 0) parts.push(`${pad(minutes)}:`);
+	parts.push(`${pad(seconds)}`);
+	return parts.join("");
 }
