@@ -4,7 +4,13 @@
 // タスク情報にcontainerOverrideが含まれる場合は、appコンテナの実行コマンドも表示します。
 // あわせて、タスクが紐づいている各コンテナのログデータも表示します。
 
-import { type LoaderFunctionArgs, useLoaderData, Link } from "react-router";
+import {
+	type LoaderFunctionArgs,
+	useLoaderData,
+	Link,
+	Await,
+} from "react-router";
+import { Suspense } from "react";
 import {
 	describeTasks,
 	describeTaskDefinitions,
@@ -122,60 +128,48 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		overrides: overrides.length > 0 ? overrides : undefined,
 	};
 
-	// 各コンテナのログデータを取得
-	const containerLogs: ContainerLogData[] = [];
+	// 各コンテナのログデータを並列取得（awaitしない）
 	const logLimit = 50; // 取得するログ件数
 
-	for (const container of displayTask.containers) {
-		const logStream = getLogStream(
-			taskDefinition,
-			displayTask.taskId,
-			container.name,
-		);
-
-		if (logStream) {
-			try {
-				const logs = await getLogEvents(
-					logStream.group,
-					logStream.stream,
-					logLimit,
-				);
-				containerLogs.push({
+	const containerLogsPromise = Promise.all(
+		displayTask.containers.map(async (container) => {
+			const logStream = getLogStream(
+				taskDefinition,
+				displayTask.taskId,
+				container.name,
+			);
+			if (!logStream) {
+				return {
 					containerName: container.name,
-					logGroupName: logStream.group,
-					logStreamName: logStream.stream,
-					logs: logs,
-				});
-			} catch (error) {
-				// ログの取得に失敗した場合でもエラーにならないようにする
-				console.warn(
-					`Failed to fetch logs for container ${container.name}:`,
-					error,
-				);
-				containerLogs.push({
-					containerName: container.name,
-					logGroupName: logStream.group,
-					logStreamName: logStream.stream,
+					logGroupName: undefined,
+					logStreamName: undefined,
 					logs: [],
-				});
+				};
 			}
-		} else {
-			containerLogs.push({
+
+			const logs = await getLogEvents(
+				logStream.group,
+				logStream.stream,
+				logLimit,
+			);
+			return {
 				containerName: container.name,
-				logs: [],
-			});
-		}
-	}
+				logGroupName: logStream.group,
+				logStreamName: logStream.stream,
+				logs: logs,
+			};
+		}),
+	);
 
 	return {
 		task: displayTask,
-		containerLogs,
+		containerLogs: containerLogsPromise,
 	};
 }
 
 type LoaderData = {
 	task: DisplayTaskData;
-	containerLogs: ContainerLogData[];
+	containerLogs: Promise<ContainerLogData[]>;
 };
 
 export default function TaskShow() {
@@ -360,59 +354,77 @@ export default function TaskShow() {
 			{/* コンテナログ */}
 			<div className="bg-white border border-gray-300 rounded-lg p-4">
 				<h2 className="text-lg font-semibold mb-4">コンテナログ</h2>
-				{containerLogs.every((log) => log.logs.length === 0) && (
-					<div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded p-3 mb-4">
-						バグにより、ログが存在するのに空として表示される場合があります。その場合はAWSマネージドコンソールから確認ください
-					</div>
-				)}
-				<div className="space-y-6">
-					{containerLogs.map((containerLog) => (
-						<div
-							key={containerLog.containerName}
-							className="border border-gray-200 rounded-lg p-4"
-						>
-							<h3 className="text-md font-semibold mb-3 flex items-center">
-								<span className="mr-2">{containerLog.containerName}</span>
-								{containerLog.logGroupName && (
-									<span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
-										{containerLog.logGroupName}
-									</span>
+				<Suspense
+					fallback={
+						<div className="text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded p-3 mb-4">
+							ログデータを読み込んでいます...
+						</div>
+					}
+				>
+					<Await resolve={containerLogs}>
+						{(resolvedContainerLogs) => (
+							<>
+								{resolvedContainerLogs.every(
+									(log) => log.logs.length === 0,
+								) && (
+									<div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded p-3 mb-4">
+										バグにより、ログが存在するのに空として表示される場合があります。その場合はAWSマネージドコンソールから確認ください
+									</div>
 								)}
-							</h3>
+								<div className="space-y-6">
+									{resolvedContainerLogs.map((containerLog) => (
+										<div
+											key={containerLog.containerName}
+											className="border border-gray-200 rounded-lg p-4"
+										>
+											<h3 className="text-md font-semibold mb-3 flex items-center">
+												<span className="mr-2">
+													{containerLog.containerName}
+												</span>
+												{containerLog.logGroupName && (
+													<span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
+														{containerLog.logGroupName}
+													</span>
+												)}
+											</h3>
 
-							{containerLog.logs.length > 0 ? (
-								<div className="bg-black text-green-400 p-3 rounded-md overflow-auto max-h-96 font-mono text-sm">
-									{containerLog.logs.map((log) => (
-										// biome-ignore lint/correctness/useJsxKeyInIterable: <explanation>
-										<div className="mb-1">
-											<span className="text-gray-400">
-												{log.timestamp
-													? new Date(log.timestamp).toLocaleString()
-													: ""}
-											</span>{" "}
-											<span>{log.message}</span>
+											{containerLog.logs.length > 0 ? (
+												<div className="bg-black text-green-400 p-3 rounded-md overflow-auto max-h-96 font-mono text-sm">
+													{containerLog.logs.map((log) => (
+														// biome-ignore lint/correctness/useJsxKeyInIterable: <explanation>
+														<div className="mb-1">
+															<span className="text-gray-400">
+																{log.timestamp
+																	? new Date(log.timestamp).toLocaleString()
+																	: ""}
+															</span>{" "}
+															<span>{log.message}</span>
+														</div>
+													))}
+												</div>
+											) : (
+												<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
+													{containerLog.logGroupName
+														? "ログデータが見つかりません"
+														: "ログ設定が見つかりません（awslogs以外のログドライバーまたは設定なし）"}
+												</div>
+											)}
+
+											{containerLog.logStreamName && (
+												<div className="mt-2 text-xs text-gray-500">
+													ログストリーム:{" "}
+													<span className="font-mono">
+														{containerLog.logStreamName}
+													</span>
+												</div>
+											)}
 										</div>
 									))}
 								</div>
-							) : (
-								<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
-									{containerLog.logGroupName
-										? "ログデータが見つかりません"
-										: "ログ設定が見つかりません（awslogs以外のログドライバーまたは設定なし）"}
-								</div>
-							)}
-
-							{containerLog.logStreamName && (
-								<div className="mt-2 text-xs text-gray-500">
-									ログストリーム:{" "}
-									<span className="font-mono">
-										{containerLog.logStreamName}
-									</span>
-								</div>
-							)}
-						</div>
-					))}
-				</div>
+							</>
+						)}
+					</Await>
+				</Suspense>
 			</div>
 		</div>
 	);
