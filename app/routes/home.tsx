@@ -1,5 +1,10 @@
 import type { Task } from "@aws-sdk/client-ecs";
-import { type LoaderFunctionArgs, useLoaderData, Link } from "react-router";
+import {
+	type LoaderFunctionArgs,
+	useLoaderData,
+	Link,
+	type HeadersArgs,
+} from "react-router";
 import {
 	describeTasks,
 	filterLogEvents,
@@ -21,6 +26,11 @@ export async function loader({
 		finishedTasks: await finishedTasks(envConfig.log_group_name, from),
 		clusterName: envConfig.cluster_name,
 	};
+}
+
+export function headers(_: HeadersArgs) {
+	// このページ、というかfilterLogEventsがやたら遅いので、主に一覧と詳細を往復するときのストレス軽減としてキャッシュを設定
+	return { "Cache-Control": "max-age=300" };
 }
 
 async function currentTasks(clusterName: string) {
