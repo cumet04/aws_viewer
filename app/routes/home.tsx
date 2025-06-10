@@ -70,6 +70,9 @@ function toCurrentTaskView(task: Task): CurrentTaskView {
 
 type FinishedTaskView = {
 	taskId: string;
+
+	// MEMO: タスク生成されたがコンテナ起動に失敗した場合にundefになる
+	// TODO: しかしこれだと一覧を開始時間でソートできないので、createdAtとかちゃんとありそうなやつにしたほうがいいかも
 	startedAt: Date | undefined;
 	stoppedAt: Date;
 	durationSec: number | undefined;
@@ -125,6 +128,20 @@ export default function Home() {
 	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
 	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
 
+	// 秒数を「1時間02分03秒」や「02分03秒」など短くわかりやすい表記に変換（分・秒は2桁ゼロ埋め）
+	function formatDuration(durationSec: number | undefined): string {
+		if (durationSec === undefined) return "";
+		const hours = Math.floor(durationSec / 3600);
+		const minutes = Math.floor((durationSec % 3600) / 60);
+		const seconds = durationSec % 60;
+		const pad = (n: number) => n.toString().padStart(2, "0");
+		const parts: string[] = [];
+		if (hours > 0) parts.push(`${hours}:`);
+		if (minutes > 0 || hours > 0) parts.push(`${pad(minutes)}:`);
+		parts.push(`${pad(seconds)}`);
+		return parts.join("");
+	}
+
 	return (
 		<div className="p-4">
 			<div className="flex items-center justify-between mb-4">
@@ -172,7 +189,7 @@ export default function Home() {
 									</Link>
 								</td>
 								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.startedAt?.toLocaleString("ja-JP")}
+									{toViewDate(task.startedAt)}
 								</td>
 								<td
 									className={`px-6 py-1 whitespace-nowrap text-sm ${
@@ -206,13 +223,7 @@ export default function Home() {
 								タスクID
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								開始時刻
-							</th>
-							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								終了時刻
-							</th>
-							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-								実行時間(秒)
+								実行時間
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								タスク定義
@@ -226,7 +237,7 @@ export default function Home() {
 						{finishedTaskGroupKeys.flatMap((dateKey) => [
 							<tr key={dateKey}>
 								<td
-									colSpan={6}
+									colSpan={4}
 									className="bg-gray-100 text-gray-700 px-6 py-1 align-middle"
 									style={{
 										fontWeight: "normal",
@@ -248,13 +259,12 @@ export default function Home() {
 										</Link>
 									</td>
 									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{task.startedAt?.toLocaleString("ja-JP")}
-									</td>
-									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{task.stoppedAt.toLocaleString("ja-JP")}
-									</td>
-									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-										{task.durationSec}
+										{toViewDate(task.startedAt)} ~ {toViewDate(task.stoppedAt)}
+										{task.durationSec !== undefined && (
+											<span className="ml-2 text-xs text-gray-500">
+												({formatDuration(task.durationSec)})
+											</span>
+										)}
 									</td>
 									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
 										{task.taskdef}
@@ -270,4 +280,13 @@ export default function Home() {
 			</div>
 		</div>
 	);
+}
+
+function toViewDate(date: Date | undefined): string {
+	if (!date) return "";
+
+	return date.toLocaleString("ja-JP", {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
