@@ -42,7 +42,8 @@ async function currentTasks(clusterName: string) {
 async function finishedTasks(logName: string, from: number) {
 	const finishedTasks = (await filterLogEvents(logName, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
-		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"));
+		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"))
+		.reverse();
 	storeFinishedTasks(finishedTasks);
 	return finishedTasks.map(toFinishedTaskView);
 }
