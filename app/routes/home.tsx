@@ -103,6 +103,28 @@ type LoaderData = {
 export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
+
+	// 終了日時で日ごとにグループ化
+	const groupTasksByStoppedDate = (
+		tasks: FinishedTaskView[],
+	): Record<string, FinishedTaskView[]> => {
+		return tasks.reduce<Record<string, FinishedTaskView[]>>((acc, task) => {
+			const dateKey = task.stoppedAt.toLocaleDateString("ja-JP", {
+				year: "numeric",
+				month: "2-digit",
+				day: "2-digit",
+			});
+			if (!acc[dateKey]) {
+				acc[dateKey] = [];
+			}
+			acc[dateKey].push(task);
+			return acc;
+		}, {});
+	};
+
+	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
+	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
+
 	return (
 		<div className="p-4">
 			<div className="flex items-center justify-between mb-4">
@@ -201,33 +223,48 @@ export default function Home() {
 						</tr>
 					</thead>
 					<tbody className="bg-white divide-y divide-gray-200">
-						{finishedTasks.map((task) => (
-							<tr key={task.taskId} className="hover:bg-gray-100">
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
-									<Link
-										to={`/tasks/${task.taskId}`}
-										className="hover:text-blue-800 underline font-mono"
-									>
-										{task.taskId.substring(0, 7)}
-									</Link>
+						{finishedTaskGroupKeys.flatMap((dateKey) => [
+							<tr key={dateKey}>
+								<td
+									colSpan={6}
+									className="bg-gray-100 text-gray-700 px-6 py-1 align-middle"
+									style={{
+										fontWeight: "normal",
+										fontSize: "0.875rem",
+										lineHeight: "1.25rem",
+									}}
+								>
+									{dateKey}
 								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.startedAt?.toLocaleString("ja-JP")}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.stoppedAt.toLocaleString("ja-JP")}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.durationSec}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-									{task.taskdef}
-								</td>
-								<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
-									{task.command ?? ""}
-								</td>
-							</tr>
-						))}
+							</tr>,
+							...finishedTaskGroups[dateKey].map((task) => (
+								<tr key={task.taskId} className="hover:bg-gray-100">
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600">
+										<Link
+											to={`/tasks/${task.taskId}`}
+											className="hover:text-blue-800 underline font-mono"
+										>
+											{task.taskId.substring(0, 7)}
+										</Link>
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{task.startedAt?.toLocaleString("ja-JP")}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{task.stoppedAt.toLocaleString("ja-JP")}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{task.durationSec}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+										{task.taskdef}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 space-y-1">
+										{task.command ?? ""}
+									</td>
+								</tr>
+							)),
+						])}
 					</tbody>
 				</table>
 			</div>
