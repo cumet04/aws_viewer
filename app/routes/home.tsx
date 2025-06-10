@@ -107,40 +107,8 @@ export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
 
-	// 終了日時で日ごとにグループ化
-	const groupTasksByStoppedDate = (
-		tasks: FinishedTaskView[],
-	): Record<string, FinishedTaskView[]> => {
-		return tasks.reduce<Record<string, FinishedTaskView[]>>((acc, task) => {
-			const dateKey = task.stoppedAt.toLocaleDateString("ja-JP", {
-				year: "numeric",
-				month: "2-digit",
-				day: "2-digit",
-			});
-			if (!acc[dateKey]) {
-				acc[dateKey] = [];
-			}
-			acc[dateKey].push(task);
-			return acc;
-		}, {});
-	};
-
 	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
 	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
-
-	// 秒数を「1時間02分03秒」や「02分03秒」など短くわかりやすい表記に変換（分・秒は2桁ゼロ埋め）
-	function formatDuration(durationSec: number | undefined): string {
-		if (durationSec === undefined) return "";
-		const hours = Math.floor(durationSec / 3600);
-		const minutes = Math.floor((durationSec % 3600) / 60);
-		const seconds = durationSec % 60;
-		const pad = (n: number) => n.toString().padStart(2, "0");
-		const parts: string[] = [];
-		if (hours > 0) parts.push(`${hours}:`);
-		if (minutes > 0 || hours > 0) parts.push(`${pad(minutes)}:`);
-		parts.push(`${pad(seconds)}`);
-		return parts.join("");
-	}
 
 	return (
 		<div className="p-4">
@@ -289,4 +257,34 @@ function toViewDate(date: Date | undefined): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+
+const groupTasksByStoppedDate = (
+	tasks: FinishedTaskView[],
+): Record<string, FinishedTaskView[]> => {
+	return tasks.reduce<Record<string, FinishedTaskView[]>>((acc, task) => {
+		const dateKey = task.stoppedAt.toLocaleDateString("ja-JP", {
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		});
+		if (!acc[dateKey]) {
+			acc[dateKey] = [];
+		}
+		acc[dateKey].push(task);
+		return acc;
+	}, {});
+};
+
+function formatDuration(durationSec: number | undefined): string {
+	if (durationSec === undefined) return "";
+	const hours = Math.floor(durationSec / 3600);
+	const minutes = Math.floor((durationSec % 3600) / 60);
+	const seconds = durationSec % 60;
+	const pad = (n: number) => n.toString().padStart(2, "0");
+	const parts: string[] = [];
+	if (hours > 0) parts.push(`${hours}:`);
+	if (minutes > 0 || hours > 0) parts.push(`${pad(minutes)}:`);
+	parts.push(`${pad(seconds)}`);
+	return parts.join("");
 }
