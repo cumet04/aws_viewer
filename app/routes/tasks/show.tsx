@@ -128,8 +128,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 		overrides: overrides.length > 0 ? overrides : undefined,
 	};
 
-	// 各コンテナのログデータを並列取得（awaitしない）
-	const logLimit = 50; // 取得するログ件数
+	const logLimit = 100; // 取得するログ件数
 
 	const containerLogsPromise = Promise.all(
 		displayTask.containers.map(async (container) => {

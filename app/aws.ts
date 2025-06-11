@@ -120,7 +120,10 @@ export async function getLogEvents(
 	);
 
 	const events: OutputLogEvent[] = [];
-	for await (const page of paginator) events.push(...(page.events ?? []));
+	for await (const page of paginator) {
+		events.push(...(page.events ?? []));
+		if (events.length >= limit) break;
+	}
 
 	return events;
 }
