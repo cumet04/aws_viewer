@@ -91,7 +91,7 @@ export async function filterLogEvents(
 }
 
 /**
- * 特定のログストリームからログイベントを取得します。
+ * 特定のログストリームの先頭からログイベントを取得します。
  * 最新のログから指定された件数分を取得します。
  *
  * @param logGroupName - CloudWatch Logsのロググループ名
@@ -104,19 +104,26 @@ export async function getLogEvents(
 	logStreamName: string,
 	limit: number,
 ): Promise<OutputLogEvent[]> {
-	// FIXME: ログイベントが存在するのに空を返すことがある
-	// たぶんこれだと思うが https://qiita.com/mmclsntr/items/09ebfa3a6c717923ead4
-
 	const paginator = paginateGetLogEvents(
 		{
 			client: new CloudWatchLogsClient({}),
 			stopOnSameToken: true, // GetLogEventsのpaginate版はこのオプションを明示しないと無限ループする https://github.com/aws/aws-sdk-js-v3/issues/3490
 		},
-		{ logGroupName, logStreamName, startFromHead: false, limit },
+		{
+			logGroupName,
+			logStreamName,
+			// GetLogEvent APIはstartFromHead: falseのとき、ときどきログを返さないバグ（？？？）がある https://github.com/boto/boto3/issues/3718
+			// このオプションのデフォルトはfalseなので、明示的にtrueにしないといけない
+			startFromHead: true,
+			limit,
+		},
 	);
 
 	const events: OutputLogEvent[] = [];
-	for await (const page of paginator) events.push(...(page.events ?? []));
+	for await (const page of paginator) {
+		events.push(...(page.events ?? []));
+		if (events.length >= limit) break;
+	}
 
 	return events;
 }
