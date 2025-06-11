@@ -1,14 +1,9 @@
-// # ページ仕様
-// ECSタスクの詳細ページを表示するためのページです。
-// URLパラメータでタスクIDが指定されているので、そのIDからタスクの詳細情報を取得し、表示します。
-// タスク情報にcontainerOverrideが含まれる場合は、appコンテナの実行コマンドも表示します。
-// あわせて、タスクが紐づいている各コンテナのログデータも表示します。
-
 import {
 	type LoaderFunctionArgs,
 	useLoaderData,
 	Link,
 	Await,
+	useSearchParams, // 追加
 } from "react-router";
 import { Suspense } from "react";
 import {
@@ -63,6 +58,10 @@ interface ContainerLogData {
 export async function loader({ params, request }: LoaderFunctionArgs) {
 	const taskId = params.id!;
 	const envConfig = getCurrentEnvironmentConfig();
+
+	// クエリパラメータからコンテナ名を取得
+	const url = new URL(request.url);
+	const queryContainerName = url.searchParams.get("container");
 
 	const task = await (async () => {
 		// 一覧で取得済の過去タスクの場合はここで取れるので、取れたら終了
@@ -130,49 +129,70 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 	const logLimit = 100; // 取得するログ件数
 
-	const containerLogsPromise = Promise.all(
-		displayTask.containers.map(async (container) => {
-			const logStream = getLogStream(
-				taskDefinition,
-				displayTask.taskId,
-				container.name,
-			);
-			if (!logStream) {
-				return {
-					containerName: container.name,
-					logGroupName: undefined,
-					logStreamName: undefined,
-					logs: [],
-				};
-			}
-
-			const logs = await getLogEvents(
-				logStream.group,
-				logStream.stream,
-				logLimit,
-			);
-			return {
-				containerName: container.name,
-				logGroupName: logStream.group,
-				logStreamName: logStream.stream,
-				logs: logs,
-			};
-		}),
+	// 表示対象のコンテナを決定
+	let targetContainerName = queryContainerName;
+	if (!targetContainerName) {
+		targetContainerName = "app"; // デフォルトは 'app'
+	}
+	const targetContainer = displayTask.containers.find(
+		(c) => c.name === targetContainerName,
 	);
+
+	// 対象コンテナが存在しない場合は最初のコンテナをフォールバック
+	const containerForLog = targetContainer
+		? targetContainer
+		: displayTask.containers[0];
+
+	const containerLogPromise: Promise<ContainerLogData | null> = containerForLog
+		? (async () => {
+				const logStream = getLogStream(
+					taskDefinition,
+					displayTask.taskId,
+					containerForLog.name,
+				);
+				if (!logStream) {
+					return {
+						containerName: containerForLog.name,
+						logGroupName: undefined,
+						logStreamName: undefined,
+						logs: [],
+					};
+				}
+
+				const logs = await getLogEvents(
+					logStream.group,
+					logStream.stream,
+					logLimit,
+				);
+				return {
+					containerName: containerForLog.name,
+					logGroupName: logStream.group,
+					logStreamName: logStream.stream,
+					logs: logs,
+				};
+			})()
+		: Promise.resolve(null); // コンテナがない場合はnullを返す
 
 	return {
 		task: displayTask,
-		containerLogs: containerLogsPromise,
+		containerLog: containerLogPromise, // 単一のコンテナログに変更
 	};
 }
 
 type LoaderData = {
 	task: DisplayTaskData;
-	containerLogs: Promise<ContainerLogData[]>;
+	containerLog: Promise<ContainerLogData | null>; // 単一のコンテナログに変更 (null許容)
 };
 
 export default function TaskShow() {
-	const { task, containerLogs } = useLoaderData() as LoaderData;
+	const { task, containerLog } = useLoaderData() as LoaderData;
+	const [searchParams, setSearchParams] = useSearchParams(); // 追加
+
+	const selectedContainerName =
+		searchParams.get("container") ||
+		(task.containers.find((c) => c.name === "app")
+			? "app"
+			: task.containers[0]?.name);
 
 	return (
 		<div className="p-4 max-w-6xl mx-auto">
@@ -352,7 +372,30 @@ export default function TaskShow() {
 
 			{/* コンテナログ */}
 			<div className="bg-white border border-gray-300 rounded-lg p-4">
-				<h2 className="text-lg font-semibold mb-4">コンテナログ</h2>
+				<h2 className="text-lg font-semibold mb-4">コンテナログ(最大100件)</h2>
+
+				{/* コンテナ選択タブ */}
+				<div className="mb-4 border-b border-gray-200">
+					<nav className="-mb-px flex space-x-8" aria-label="Tabs">
+						{task.containers.map((container) => (
+							<button
+								key={container.name}
+								type="button"
+								onClick={() => setSearchParams({ container: container.name })}
+								className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm
+									${
+										selectedContainerName === container.name
+											? "border-blue-500 text-blue-600"
+											: "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+									}
+								`}
+							>
+								{container.name}
+							</button>
+						))}
+					</nav>
+				</div>
+
 				<Suspense
 					fallback={
 						<div className="text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded p-3 mb-4">
@@ -360,61 +403,64 @@ export default function TaskShow() {
 						</div>
 					}
 				>
-					<Await resolve={containerLogs}>
-						{(resolvedContainerLogs) => (
-							<>
-								<div className="space-y-6">
-									{resolvedContainerLogs.map((containerLog) => (
-										<div
-											key={containerLog.containerName}
-											className="border border-gray-200 rounded-lg p-4"
-										>
-											<h3 className="text-md font-semibold mb-3 flex items-center">
-												<span className="mr-2">
-													{containerLog.containerName}
-												</span>
-												{containerLog.logGroupName && (
-													<span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
-														{containerLog.logGroupName}
-													</span>
-												)}
-											</h3>
+					<Await resolve={containerLog}>
+						{(resolvedContainerLog) => {
+							if (!resolvedContainerLog) {
+								return (
+									<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
+										ログ表示対象のコンテナが見つかりません。
+									</div>
+								);
+							}
+							return (
+								<div
+									key={resolvedContainerLog.containerName}
+									className="border border-gray-200 rounded-lg p-4"
+								>
+									<h3 className="text-md font-semibold mb-3 flex items-center">
+										<span className="mr-2">
+											{resolvedContainerLog.containerName}
+										</span>
+										{resolvedContainerLog.logGroupName && (
+											<span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
+												{resolvedContainerLog.logGroupName}
+											</span>
+										)}
+									</h3>
 
-											{containerLog.logs.length > 0 ? (
-												<div className="bg-black text-green-400 p-3 rounded-md overflow-auto max-h-96 font-mono text-sm">
-													{containerLog.logs.map((log) => (
-														// biome-ignore lint/correctness/useJsxKeyInIterable: <explanation>
-														<div className="mb-1">
-															<span className="text-gray-400">
-																{log.timestamp
-																	? new Date(log.timestamp).toLocaleString()
-																	: ""}
-															</span>{" "}
-															<span>{log.message}</span>
-														</div>
-													))}
+									{resolvedContainerLog.logs.length > 0 ? (
+										<div className="bg-black text-green-400 p-3 rounded-md overflow-auto max-h-96 font-mono text-sm">
+											{resolvedContainerLog.logs.map((log, index) => (
+												// biome-ignore lint/suspicious/noArrayIndexKey: <explanation>
+												<div key={index} className="mb-1">
+													<span className="text-gray-400">
+														{log.timestamp
+															? new Date(log.timestamp).toLocaleString()
+															: ""}
+													</span>{" "}
+													<span>{log.message}</span>
 												</div>
-											) : (
-												<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
-													{containerLog.logGroupName
-														? "ログデータが見つかりません"
-														: "ログ設定が見つかりません（awslogs以外のログドライバーまたは設定なし）"}
-												</div>
-											)}
-
-											{containerLog.logStreamName && (
-												<div className="mt-2 text-xs text-gray-500">
-													ログストリーム:{" "}
-													<span className="font-mono">
-														{containerLog.logStreamName}
-													</span>
-												</div>
-											)}
+											))}
 										</div>
-									))}
+									) : (
+										<div className="text-gray-500 text-sm p-3 bg-gray-50 rounded">
+											{resolvedContainerLog.logGroupName
+												? "ログデータが見つかりません"
+												: "ログ設定が見つかりません（awslogs以外のログドライバーまたは設定なし）"}
+										</div>
+									)}
+
+									{resolvedContainerLog.logStreamName && (
+										<div className="mt-2 text-xs text-gray-500">
+											ログストリーム:{" "}
+											<span className="font-mono">
+												{resolvedContainerLog.logStreamName}
+											</span>
+										</div>
+									)}
 								</div>
-							</>
-						)}
+							);
+						}}
 					</Await>
 				</Suspense>
 			</div>
