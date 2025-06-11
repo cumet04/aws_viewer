@@ -76,6 +76,7 @@ type FinishedTaskView = {
 	startedAt: Date | undefined;
 	stoppedAt: Date;
 	durationSec: number | undefined;
+	success: boolean;
 	taskdef: string;
 	command: string | undefined;
 };
@@ -90,6 +91,7 @@ function toFinishedTaskView(task: Task): FinishedTaskView {
 					(task.stoppedAt!.getTime() - task.startedAt.getTime()) / 1000,
 				)
 			: undefined,
+		success: task.containers?.find((c) => c.name === "app")?.exitCode === 0,
 		taskdef: task.taskDefinitionArn!.split(":task-definition/")[1],
 		command: task.overrides?.containerOverrides
 			?.find((c) => c.name === "app")
@@ -194,6 +196,9 @@ export default function Home() {
 								実行時間
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+								成否
+							</th>
+							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
 								タスク定義
 							</th>
 							<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -205,7 +210,7 @@ export default function Home() {
 						{finishedTaskGroupKeys.flatMap((dateKey) => [
 							<tr key={dateKey}>
 								<td
-									colSpan={4}
+									colSpan={5}
 									className="bg-gray-100 text-gray-700 px-6 py-1 align-middle"
 									style={{
 										fontWeight: "normal",
@@ -232,6 +237,13 @@ export default function Home() {
 											<span className="ml-2 text-xs text-gray-500">
 												({formatDuration(task.durationSec)})
 											</span>
+										)}
+									</td>
+									<td className="px-6 py-4 whitespace-nowrap text-sm">
+										{task.success ? (
+											<span className="text-green-500">Success</span>
+										) : (
+											<span className="text-red-500">Failure</span>
 										)}
 									</td>
 									<td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
