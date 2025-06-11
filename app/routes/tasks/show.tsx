@@ -364,13 +364,6 @@ export default function TaskShow() {
 					<Await resolve={containerLogs}>
 						{(resolvedContainerLogs) => (
 							<>
-								{resolvedContainerLogs.every(
-									(log) => log.logs.length === 0,
-								) && (
-									<div className="text-sm text-orange-600 bg-orange-50 border border-orange-200 rounded p-3 mb-4">
-										バグにより、ログが存在するのに空として表示される場合があります。その場合はAWSマネージドコンソールから確認ください
-									</div>
-								)}
 								<div className="space-y-6">
 									{resolvedContainerLogs.map((containerLog) => (
 										<div
