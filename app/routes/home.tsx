@@ -4,6 +4,8 @@ import {
 	useLoaderData,
 	Link,
 	type HeadersArgs,
+	useSearchParams,
+	useNavigation,
 } from "react-router";
 import {
 	describeTasks,
@@ -18,13 +20,25 @@ export async function loader({
 	request,
 }: LoaderFunctionArgs): Promise<LoaderData> {
 	const envConfig = getCurrentEnvironmentConfig();
+	const { hours } = parseRequest(request);
 
-	const from = Date.now() - 24 * 60 * 60 * 1000; // 直近24時間分。ただちょっと多すぎてページ重いので、できればpaginateとかしたい
+	const from = Date.now() - (hours ?? 12) * 60 * 60 * 1000;
 
 	return {
 		currentTasks: await currentTasks(envConfig.cluster_name),
 		finishedTasks: await finishedTasks(envConfig.log_group_name, from),
 		clusterName: envConfig.cluster_name,
+	};
+}
+
+function parseRequest(request: Request): { hours?: number } {
+	const { searchParams: query } = new URL(request.url);
+
+	const hoursParam = query.get("hours");
+	const hours = hoursParam ? Number.parseInt(hoursParam, 10) : undefined;
+
+	return {
+		hours,
 	};
 }
 
@@ -108,9 +122,16 @@ type LoaderData = {
 export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
+	const [searchParams] = useSearchParams();
+	const navigation = useNavigation();
 
 	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
 	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
+
+	const currentHours = searchParams.get("hours");
+	const currentHoursNum = currentHours ? Number.parseInt(currentHours, 10) : 12;
+	const nextHours = currentHoursNum + 12;
+	const isLoading = navigation.state === "loading";
 
 	return (
 		<div className="p-4">
@@ -257,6 +278,18 @@ export default function Home() {
 						])}
 					</tbody>
 				</table>
+			</div>
+			<div className="mt-4 text-center" id="load-more-button">
+				<Link
+					to={`/?hours=${nextHours}#load-more-button`}
+					className="inline-block px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 hover:border-gray-400 transition-colors"
+				>
+					{isLoading ? (
+						<span className="inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+					) : (
+						"更に12時間遡る"
+					)}
+				</Link>
 			</div>
 		</div>
 	);
