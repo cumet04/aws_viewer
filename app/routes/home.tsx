@@ -5,6 +5,7 @@ import {
 	Link,
 	type HeadersArgs,
 	useSearchParams,
+	useNavigation,
 } from "react-router";
 import {
 	describeTasks,
@@ -122,6 +123,7 @@ export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
 	const [searchParams] = useSearchParams();
+	const navigation = useNavigation();
 
 	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
 	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
@@ -129,6 +131,7 @@ export default function Home() {
 	const currentHours = searchParams.get("hours");
 	const currentHoursNum = currentHours ? Number.parseInt(currentHours, 10) : 12;
 	const nextHours = currentHoursNum + 12;
+	const isLoading = navigation.state === "loading";
 
 	return (
 		<div className="p-4">
@@ -281,7 +284,11 @@ export default function Home() {
 					to={`/?hours=${nextHours}#load-more-button`}
 					className="inline-block px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 hover:border-gray-400 transition-colors"
 				>
-					更に12時間遡る
+					{isLoading ? (
+						<span className="inline-block w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+					) : (
+						"更に12時間遡る"
+					)}
 				</Link>
 			</div>
 		</div>
