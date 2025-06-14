@@ -18,13 +18,25 @@ export async function loader({
 	request,
 }: LoaderFunctionArgs): Promise<LoaderData> {
 	const envConfig = getCurrentEnvironmentConfig();
+	const { hours } = parseRequest(request);
 
-	const from = Date.now() - 24 * 60 * 60 * 1000; // 直近24時間分。ただちょっと多すぎてページ重いので、できればpaginateとかしたい
+	const from = Date.now() - (hours ?? 12) * 60 * 60 * 1000;
 
 	return {
 		currentTasks: await currentTasks(envConfig.cluster_name),
 		finishedTasks: await finishedTasks(envConfig.log_group_name, from),
 		clusterName: envConfig.cluster_name,
+	};
+}
+
+function parseRequest(request: Request): { hours?: number } {
+	const { searchParams: query } = new URL(request.url);
+
+	const hoursParam = query.get("hours");
+	const hours = hoursParam ? Number.parseInt(hoursParam, 10) : undefined;
+
+	return {
+		hours,
 	};
 }
 
