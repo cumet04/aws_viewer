@@ -4,6 +4,7 @@ import {
 	useLoaderData,
 	Link,
 	type HeadersArgs,
+	useSearchParams,
 } from "react-router";
 import {
 	describeTasks,
@@ -120,9 +121,14 @@ type LoaderData = {
 export default function Home() {
 	const { currentTasks, finishedTasks, clusterName } =
 		useLoaderData<LoaderData>();
+	const [searchParams] = useSearchParams();
 
 	const finishedTaskGroups = groupTasksByStoppedDate(finishedTasks);
 	const finishedTaskGroupKeys = Object.keys(finishedTaskGroups);
+
+	const currentHours = searchParams.get("hours");
+	const currentHoursNum = currentHours ? Number.parseInt(currentHours, 10) : 12;
+	const nextHours = currentHoursNum + 12;
 
 	return (
 		<div className="p-4">
@@ -269,6 +275,14 @@ export default function Home() {
 						])}
 					</tbody>
 				</table>
+			</div>
+			<div className="mt-4 text-center" id="load-more-button">
+				<Link
+					to={`/?hours=${nextHours}#load-more-button`}
+					className="inline-block px-3 py-1 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50 hover:border-gray-400 transition-colors"
+				>
+					更に12時間遡る
+				</Link>
 			</div>
 		</div>
 	);
