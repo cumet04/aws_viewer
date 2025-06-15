@@ -3,6 +3,7 @@ import environmentsConfig from "./environments.json";
 // 環境設定の型定義
 export interface EnvironmentConfig {
 	cluster_name: string;
+	main_container: string;
 	log_group_name: string;
 }
 

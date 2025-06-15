@@ -132,7 +132,7 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	// 表示対象のコンテナを決定
 	let targetContainerName = queryContainerName;
 	if (!targetContainerName) {
-		targetContainerName = "app"; // デフォルトは 'app'
+		targetContainerName = envConfig.main_container; // デフォルトは設定値
 	}
 	const targetContainer = displayTask.containers.find(
 		(c) => c.name === targetContainerName,
@@ -176,22 +176,24 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 	return {
 		task: displayTask,
 		containerLog: containerLogPromise, // 単一のコンテナログに変更
+		mainContainer: envConfig.main_container, // 設定値を追加
 	};
 }
 
 type LoaderData = {
 	task: DisplayTaskData;
 	containerLog: Promise<ContainerLogData | null>; // 単一のコンテナログに変更 (null許容)
+	mainContainer: string; // 設定値を追加
 };
 
 export default function TaskShow() {
-	const { task, containerLog } = useLoaderData() as LoaderData;
+	const { task, containerLog, mainContainer } = useLoaderData() as LoaderData;
 	const [searchParams, setSearchParams] = useSearchParams(); // 追加
 
 	const selectedContainerName =
 		searchParams.get("container") ||
-		(task.containers.find((c) => c.name === "app")
-			? "app"
+		(task.containers.find((c) => c.name === mainContainer)
+			? mainContainer
 			: task.containers[0]?.name);
 
 	return (
