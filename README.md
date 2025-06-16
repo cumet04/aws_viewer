@@ -1,87 +1,35 @@
-# Welcome to React Router!
+# aws_viewer
 
-A modern, production-ready template for building full-stack React applications using React Router.
+このリポジトリは、自分用の「閲覧専用のbetter AWSマネコン」です。
+汎用性よりも必要な情報の取得速度を重視し、ECSタスクの情報表示に特化しています。
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+## 概要
 
-## Features
+ECSタスクの情報を素早く確認するためのツールです。表示内容や機能は、個人の利用目的に合わせて最小限に絞っています。
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+## 設定について
 
-## Getting Started
+アプリケーションの利用には、`app/config/environments.json` に環境情報を記載する必要があります。複数の環境（本番やstagingなど）を切り替えて利用できるよう、`"env"` を複数用意できます。
 
-### Installation
+各属性の説明は以下の通りです。
 
-Install the dependencies:
+- `cluster_name`: 対象とするECSクラスターの名前を指定します。
+- `main_container`: ECSタスク内でメインとなるアプリケーションのコンテナ名を指定します。これは一覧表示やデフォルトのログ表示に利用されます。
+- `log_group_name`: 終了したECSタスクのイベントログを格納するCloudWatch Logsのロググループ名を指定します。このロググループは事前に用意しておく必要があります。
 
-```bash
-npm install
+EventBridgeからCloudWatch Logsへ、以下のイベントパターンでイベントを転送する設定を行ってください。
+
+```json
+{
+  "source": ["aws.ecs"],
+  "detail-type": ["ECS Task State Change"],
+  "detail": {
+    "lastStatus": ["STOPPED"],
+    "clusterArn": ["(対象のECSクラスターARN)"]
+  }
+}
 ```
 
-### Development
+## 利用方法
 
-Start the development server with HMR:
-
-```bash
-npm run dev
-```
-
-Your application will be available at `http://localhost:5173`.
-
-## Building for Production
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-## Deployment
-
-### Docker Deployment
-
-To build and run using Docker:
-
-```bash
-docker build -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
-
----
-
-Built with ❤️ using React Router.
+利用者向けにはDockerfileと、ビルド・起動用のスクリプト（`bin/start.sh`）を用意しています。AWSの認証情報が利用できる状態で `bin/start.sh` を実行することで、アプリケーションを起動できます。
