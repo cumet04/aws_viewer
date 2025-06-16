@@ -25,8 +25,15 @@ export async function loader({
 	const from = Date.now() - (hours ?? 12) * 60 * 60 * 1000;
 
 	return {
-		currentTasks: await currentTasks(envConfig.cluster_name),
-		finishedTasks: await finishedTasks(envConfig.log_group_name, from),
+		currentTasks: await currentTasks(
+			envConfig.cluster_name,
+			envConfig.main_container,
+		),
+		finishedTasks: await finishedTasks(
+			envConfig.log_group_name,
+			from,
+			envConfig.main_container,
+		),
 		clusterName: envConfig.cluster_name,
 	};
 }
@@ -47,19 +54,23 @@ export function headers(_: HeadersArgs) {
 	return { "Cache-Control": "max-age=300" };
 }
 
-async function currentTasks(clusterName: string) {
+async function currentTasks(clusterName: string, mainContainer: string) {
 	const arns = await listEcsTaskArns(clusterName);
 	const tasks = await describeTasks(arns);
-	return tasks.map(toCurrentTaskView);
+	return tasks.map((task) => toCurrentTaskView(task, mainContainer));
 }
 
-async function finishedTasks(logName: string, from: number) {
+async function finishedTasks(
+	logName: string,
+	from: number,
+	mainContainer: string,
+) {
 	const finishedTasks = (await filterLogEvents(logName, from))
 		.map((log) => parseEcsTaskStateChangeEvent(log.message!).detail)
 		.filter((task) => !task.startedBy?.startsWith("ecs-svc/"))
 		.reverse();
 	storeFinishedTasks(finishedTasks);
-	return finishedTasks.map(toFinishedTaskView);
+	return finishedTasks.map((task) => toFinishedTaskView(task, mainContainer));
 }
 
 type CurrentTaskView = {
@@ -70,14 +81,14 @@ type CurrentTaskView = {
 	command: string | undefined;
 };
 
-function toCurrentTaskView(task: Task): CurrentTaskView {
+function toCurrentTaskView(task: Task, mainContainer: string): CurrentTaskView {
 	return {
 		taskId: task.taskArn!.split("/").pop()!,
 		startedAt: task.startedAt!,
 		lastStatus: task.lastStatus!,
 		taskdef: task.taskDefinitionArn!.split(":task-definition/")[1],
 		command: task.overrides?.containerOverrides
-			?.find((c) => c.name === "app")
+			?.find((c) => c.name === mainContainer)
 			?.command?.join(" "),
 	};
 }
@@ -95,7 +106,10 @@ type FinishedTaskView = {
 	command: string | undefined;
 };
 
-function toFinishedTaskView(task: Task): FinishedTaskView {
+function toFinishedTaskView(
+	task: Task,
+	mainContainer: string,
+): FinishedTaskView {
 	return {
 		taskId: task.taskArn!.split("/").pop()!,
 		startedAt: task.startedAt,
@@ -105,10 +119,11 @@ function toFinishedTaskView(task: Task): FinishedTaskView {
 					(task.stoppedAt!.getTime() - task.startedAt.getTime()) / 1000,
 				)
 			: undefined,
-		success: task.containers?.find((c) => c.name === "app")?.exitCode === 0,
+		success:
+			task.containers?.find((c) => c.name === mainContainer)?.exitCode === 0,
 		taskdef: task.taskDefinitionArn!.split(":task-definition/")[1],
 		command: task.overrides?.containerOverrides
-			?.find((c) => c.name === "app")
+			?.find((c) => c.name === mainContainer)
 			?.command?.join(" "),
 	};
 }
