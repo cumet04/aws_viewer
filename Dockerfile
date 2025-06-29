@@ -1,21 +1,14 @@
 FROM node:24.1.0-slim AS node_base
 WORKDIR /app
 
-FROM node_base AS development-dependencies-env
-COPY ./package.json package-lock.json /app/
+FROM node_base
+COPY ./package.json package-lock.json ./
 RUN npm ci
 
-FROM node_base AS production-dependencies-env
-COPY ./package.json package-lock.json /app/
-RUN npm ci --omit=dev
+# 諸事情により、Dockerコンテナ内でもproduction buildではなくdev serverを起動する。 refs #19
+# なお、configをコンテナ内に埋め込むかたちになっているので、いずれにせよイメージの配布やクラウド運用はできない状態。
 
-FROM node_base AS build-env
-COPY . /app/
-COPY --from=development-dependencies-env /app/node_modules /app/node_modules
-RUN npm run build
-
-FROM node_base
-COPY ./package.json package-lock.json /app/
-COPY --from=production-dependencies-env /app/node_modules /app/node_modules
-COPY --from=build-env /app/build /app/build
-CMD ["npm", "run", "start"]
+COPY ./app ./app
+COPY ./public ./public
+COPY ./*.ts ./tsconfig.json ./
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

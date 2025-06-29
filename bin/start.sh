@@ -20,8 +20,7 @@ if [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
   docker rm -f $CONTAINER_NAME > /dev/null
 fi
 
-# aws-vault exec profile -- docker run -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN image command
-docker run -d -p $PORT:3000 --name $CONTAINER_NAME \
+docker run -d -p $PORT:5173 --name $CONTAINER_NAME \
   -e AWS_REGION -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
   -e CLUSTER_NAME -e LOG_GROUP_NAME \
   $IMAGE_TAG
