@@ -19,6 +19,11 @@ import { getCurrentEnvironmentConfig } from "~/config/environment";
 export async function loader({
 	request,
 }: LoaderFunctionArgs): Promise<LoaderData> {
+	const url = new URL(request.url);
+	if (url.searchParams.get("test_error") === "true") {
+		throw new Error("テスト用エラー: データの取得に失敗しました");
+	}
+	
 	const envConfig = getCurrentEnvironmentConfig();
 	const { hours } = parseRequest(request);
 

@@ -50,6 +50,18 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 	let details = "An unexpected error occurred.";
 	let stack: string | undefined;
 
+	// より詳細なエラー情報を取得を試みる
+	let errorDetails = details;
+	if (error && typeof error === 'object') {
+		if ('message' in error && typeof error.message === 'string') {
+			errorDetails = error.message;
+		}
+		// 追加のエラー情報があれば使用
+		if ('cause' in error && error.cause) {
+			errorDetails += ` (Cause: ${error.cause})`;
+		}
+	}
+
 	if (isRouteErrorResponse(error)) {
 		message = error.status === 404 ? "404" : "Error";
 		details =
@@ -69,6 +81,22 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 			stack = error.stack;
 		}
 		details = error.message;
+	} else if (error && error instanceof Error) {
+		// Production環境でも基本的なエラー情報は表示
+		if (error.message.includes("is not authorized to perform")) {
+			message = "AWS permission error";
+			details = "AWS権限が不足しています。必要な権限を確認してください。";
+		} else if (
+			error.message.includes(
+				"The security token included in the request is expired",
+			)
+		) {
+			message = "AWS token expired";
+			details = "AWSトークンの有効期限が切れています。再認証してください。";
+		} else {
+			// 一般的なエラーの場合、エラーメッセージを表示
+			details = errorDetails;
+		}
 	}
 
 	return (
