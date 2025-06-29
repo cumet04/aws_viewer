@@ -56,7 +56,7 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 			error.status === 404
 				? "The requested page could not be found."
 				: error.statusText || details;
-	} else if (import.meta.env.DEV && error && error instanceof Error) {
+	} else if (error && error instanceof Error) {
 		if (error.message.includes("is not authorized to perform")) {
 			message = "AWS permission error";
 		} else if (
